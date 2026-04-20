@@ -372,7 +372,7 @@ export const WORKER_DEFS = [
     maxByStage: { garage: 1, shop: 2, storefront: 2, warehouse: 3, company: 4, regional: 4, national: 4, corporate: 5 } },
   { id: 'packer',      label: 'Packer',       icon: '📦', input: 'cleaned',   actionType: 'COMPLETE_PACK',   hireCost: 60,  upgBase: 40,  baseDuration: DURATIONS.pack,   desc: 'Packs units for shipping',    unlockSold: 3,
     maxByStage: { garage: 1, shop: 1, storefront: 2, warehouse: 2, company: 3, regional: 3, national: 3, corporate: 4 } },
-  { id: 'tech',        label: 'Repair Tech',  icon: '🔧', input: 'audited',   actionType: 'COMPLETE_REPAIR', hireCost: 150, upgBase: 120, baseDuration: DURATIONS.repair, desc: 'Repairs damaged units',       unlockSold: 15,
+  { id: 'tech',        label: 'Repair Tech',  icon: '🔧', input: 'audited',   actionType: 'COMPLETE_REPAIR', hireCost: 150, upgBase: 120, baseDuration: DURATIONS.repair, desc: 'Repairs damaged units',       unlockSold: 15, perHire: true,
     maxByStage: { garage: 1, shop: 1, storefront: 2, warehouse: 2, company: 2, regional: 3, national: 3, corporate: 4 } },
   { id: 'desktopTech', label: 'Desktop Tech', icon: '🖥️', input: 'audited',   actionType: 'COMPLETE_REPAIR', hireCost: 180, upgBase: 140, baseDuration: DURATIONS.repair, desc: 'Volume specialist — 50% faster on desktops, AIOs & monitors',  unlockSold: 35, unlockStage: 'shop',
     maxByStage: { shop: 1, storefront: 1, warehouse: 2, company: 2, regional: 2, national: 2, corporate: 3 } },
@@ -421,7 +421,8 @@ export function upgradeCost(def, currentLevel) {
 export const UPGRADE_SOLD_THRESHOLDS = { 2: 8, 3: 20, 4: 40, 5: 80 }
 export function upgradeGate(worker, state) {
   if (!worker || worker.count < 1) return { allowed: false, needed: 0, since: 0 }
-  const nextLevel = worker.level + 1
+  const baseLevel = workerLevel(worker)   // per-hire: uses the lowest hire's level
+  const nextLevel = baseLevel + 1
   if (nextLevel > 5) return { allowed: false, needed: 0, since: 0 }
   const needed = UPGRADE_SOLD_THRESHOLDS[nextLevel] || 0
   const anchor = worker.upgradedAtSold ?? 0
@@ -443,6 +444,54 @@ export function workerMaxCount(def, state) {
 export function workerHireCost(def, currentCount, state) {
   const discount = state?.bonuses?.hireCostMult || 1
   return Math.round(def.hireCost * Math.pow(1.5, currentCount) * discount)
+}
+
+// ── Per-hire level helpers (tech only for now) ───────────────────────────────
+// Tech stores individual hire levels in `hireLevels: [1, 1, 2]` (some techs
+// are better than others). Other roles still use shared `level`. These helpers
+// normalize reads so callers don't have to branch.
+
+// Effective "group" level for a worker. For per-hire roles: the lowest hire
+// level (the crew's floor). Promoting the weakest tech raises the floor.
+export function workerLevel(worker) {
+  if (!worker) return 1
+  if (worker.hireLevels && worker.hireLevels.length > 0) {
+    return Math.min(...worker.hireLevels)
+  }
+  return worker.level || 1
+}
+
+// Max level across all hires (for "everyone maxed?" checks).
+export function workerMaxLevel(worker) {
+  if (!worker) return 1
+  if (worker.hireLevels && worker.hireLevels.length > 0) {
+    return Math.max(...worker.hireLevels)
+  }
+  return worker.level || 1
+}
+
+// For the ticker: returns the level to use for the Nth active slot.
+// Per-hire: sort hireLevels desc (best tech works first), index by slot.
+// Non-per-hire: everyone shares the same level.
+export function levelForSlot(worker, slotIdx) {
+  if (!worker) return 1
+  if (worker.hireLevels && worker.hireLevels.length > 0) {
+    const sorted = [...worker.hireLevels].sort((a, b) => b - a)
+    return sorted[slotIdx] ?? sorted[sorted.length - 1] ?? 1
+  }
+  return worker.level || 1
+}
+
+// Promotion target for a per-hire worker: index of the lowest-level hire.
+// Returns -1 if not per-hire or everyone is maxed.
+export function promotionTargetIndex(worker) {
+  if (!worker?.hireLevels || worker.hireLevels.length === 0) return -1
+  let lowIdx = -1
+  let lowLvl = 6
+  worker.hireLevels.forEach((lvl, i) => {
+    if (lvl < lowLvl) { lowLvl = lvl; lowIdx = i }
+  })
+  return lowLvl >= 5 ? -1 : lowIdx
 }
 
 // ── Special hires (management) ───────────────────────────────────────────────
@@ -2027,7 +2076,10 @@ export function makeInitialState() {
     parts: 0,
     partsIncoming: [],
     lotsIncoming: [],
-    workers: Object.fromEntries(WORKER_DEFS.map(d => [d.id, { count: 0, level: 1 }])),
+    workers: Object.fromEntries(WORKER_DEFS.map(d => [
+      d.id,
+      d.perHire ? { count: 0, level: 1, hireLevels: [] } : { count: 0, level: 1 },
+    ])),
     specials: Object.fromEntries(SPECIAL_HIRES.map(d => [d.id, { hired: false, level: 1 }])),
     expansionStage: 'garage',
     stageUpgradedAtSold: 0,
@@ -2639,7 +2691,8 @@ export function reducer(state, action) {
     case 'HIRE_WORKER': {
       const def  = WORKER_DEFS.find(d => d.id === action.payload)
       if (!def) return state
-      const worker = state.workers[def.id] || { count: 0, level: 1 }
+      const fallback = def.perHire ? { count: 0, level: 1, hireLevels: [] } : { count: 0, level: 1 }
+      const worker = state.workers[def.id] || fallback
       const maxCount = workerMaxCount(def, state)
       if (worker.count >= maxCount) return mkLog(state, `❌ ${def.label} capped at ${maxCount} for this stage — expand to hire more.`)
       const cost = workerHireCost(def, worker.count, state)
@@ -2650,11 +2703,15 @@ export function reducer(state, action) {
       // Anchor the upgrade gate to current sold count on first hire, so the crew
       // has to actually ship units at L1 before promotion becomes available.
       const upgradedAtSold = worker.count === 0 ? (state.sold || 0) : (worker.upgradedAtSold ?? 0)
+      // Per-hire roles: push a fresh L1 hire; shared-level roles: just count++.
+      const nextWorker = def.perHire
+        ? { ...worker, count: nextCount, hireLevels: [...(worker.hireLevels || []), 1], level: 1, upgradedAtSold }
+        : { ...worker, count: nextCount, upgradedAtSold }
       let s = mkLog({
         ...state,
         money: state.money - cost,
         parts: (state.parts || 0) + giftParts,
-        workers: { ...state.workers, [def.id]: { ...worker, count: nextCount, upgradedAtSold } },
+        workers: { ...state.workers, [def.id]: nextWorker },
       }, giftParts > 0
         ? `👤 Hired ${def.label} #${nextCount}! 🎁 Starter kit: +${giftParts} parts to get them going.`
         : `👤 Hired ${def.label} #${nextCount}! (×${nextCount} total)`)
@@ -2665,16 +2722,31 @@ export function reducer(state, action) {
       const def = WORKER_DEFS.find(d => d.id === action.payload)
       if (!def) return state
       const worker = state.workers[def.id]
-      if (!worker || worker.count < 1 || worker.level >= 5) return state
+      if (!worker || worker.count < 1) return state
+      const baseLevel = workerLevel(worker)
+      if (baseLevel >= 5) return state
       const gate = upgradeGate(worker, state)
-      if (!gate.allowed) return mkLog(state, `🔒 ${def.label} needs ${gate.remaining} more sold at L${worker.level} before promotion.`)
-      const cost = upgradeCost(def, worker.level)
+      if (!gate.allowed) return mkLog(state, `🔒 ${def.label} needs ${gate.remaining} more sold at L${baseLevel} before promotion.`)
+      const cost = upgradeCost(def, baseLevel)
       if (state.money < cost) return mkLog(state, `❌ Need $${cost} to upgrade ${def.label}`)
+      // Per-hire: promote the lowest-level hire by 1. Shared: bump whole crew.
+      let nextWorker
+      if (def.perHire) {
+        const idx = promotionTargetIndex(worker)
+        if (idx < 0) return state
+        const nextHireLevels = worker.hireLevels.map((lv, i) => i === idx ? lv + 1 : lv)
+        nextWorker = { ...worker, hireLevels: nextHireLevels, level: Math.min(...nextHireLevels), upgradedAtSold: state.sold || 0 }
+      } else {
+        nextWorker = { ...worker, level: worker.level + 1, upgradedAtSold: state.sold || 0 }
+      }
+      const nextLevelLabel = def.perHire ? (baseLevel + 1) : (worker.level + 1)
       return mkLog({
         ...state,
         money: state.money - cost,
-        workers: { ...state.workers, [def.id]: { ...worker, level: worker.level + 1, upgradedAtSold: state.sold || 0 } },
-      }, `⬆️ ${def.label} crew upgraded to Level ${worker.level + 1}!`)
+        workers: { ...state.workers, [def.id]: nextWorker },
+      }, def.perHire
+        ? `⬆️ Promoted a ${def.label} to Level ${nextLevelLabel}!`
+        : `⬆️ ${def.label} crew upgraded to Level ${nextLevelLabel}!`)
     }
 
     case 'HIRE_SPECIAL': {

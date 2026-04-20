@@ -6,6 +6,7 @@ import {
   SPECIAL_HIRES, specialUpgCost, specialHireCost,
   rollAuditEvents, rollRepairEvents,
   upgradeCost, workerDuration, workerMaxCount, workerHireCost, workerAcceptsUnit, workerStageUnlocked, upgradeGate,
+  workerLevel, workerMaxLevel, levelForSlot,
   activeBuffs, bossActive, bossReady, bossCooldownLeft,
   moraleUnlocked, moraleFace,
   payrollUnlocked, wageDue, PAYROLL_INTERVAL_MS,
@@ -27,8 +28,8 @@ import {
 import { t as translate, tf as translatef } from './i18n'
 import './App.css'
 
-const SAVE_KEY = 'lrt-v5'
-const LEGACY_KEYS = ['lrt-v4', 'lrt-v3', 'lrt-v2', 'lrt-v1']
+const SAVE_KEY = 'lrt-v6'
+const LEGACY_KEYS = ['lrt-v5', 'lrt-v4', 'lrt-v3', 'lrt-v2', 'lrt-v1']
 
 function migratePipeline(pipeline) {
   if (!pipeline) return pipeline
@@ -37,13 +38,22 @@ function migratePipeline(pipeline) {
 }
 
 // Old saves used { hired: bool, level }; new shape is { count, level }.
-// Coerce on load so upgrades/hires still make sense.
+// Also: tech now uses per-hire levels { hireLevels: [1,1,2] } on top of count.
 function migrateWorkers(workers) {
   if (!workers) return workers
   return Object.fromEntries(Object.entries(workers).map(([k, v]) => {
     if (!v || typeof v !== 'object') return [k, v]
-    if (typeof v.count === 'number') return [k, v]
-    return [k, { count: v.hired ? 1 : 0, level: v.level || 1 }]
+    const def = WORKER_DEFS.find(d => d.id === k)
+    // Coerce pre-count shape first.
+    let next = (typeof v.count === 'number')
+      ? v
+      : { count: v.hired ? 1 : 0, level: v.level || 1 }
+    // Seed per-hire array for tech so old saves get [L, L, L] for their crew.
+    if (def?.perHire && !Array.isArray(next.hireLevels)) {
+      const lvl = next.level || 1
+      next = { ...next, hireLevels: Array(next.count || 0).fill(lvl), level: lvl }
+    }
+    return [k, next]
   }))
 }
 
@@ -677,6 +687,9 @@ export default function App() {
           const headAuditLvl = s.specials?.headAuditor?.hired ? (s.specials.headAuditor.level || 1) : 0
           const invRepairMult = isRepair ? ([1, 0.90, 0.80, 0.70][invLvlFast] || 1) : 1
           const headAuditMult = def.id === 'auditor' ? ([1, 0.75, 0.60, 0.50][headAuditLvl] || 1) : 1
+          // Per-hire roles (tech): best hires fill busy slots first, so slot idx
+          // busy+i maps to the sorted-desc hire for this unit.
+          const slotLevel = def.perHire ? levelForSlot(worker, busy + i) : worker.level
           const supMult   =
             def.id === 'auditor' ? (sup?.auditMult || 1) * headAuditMult :
             def.id === 'cleaner' ? (sup?.cleanMult || 1) :
@@ -685,7 +698,7 @@ export default function App() {
           const typeMult  = isRepair ? (unit?.repairMult || 1) * invRepairMult * dtFamilyBonus : 1
           const bonus     = isRepair ? (unit?.repairBonusMs || 0) : 0
           const jitter    = 0.85 + Math.random() * 0.30
-          const duration  = Math.max(500, ((workerDuration(def.baseDuration, worker.level) * typeMult * supMult + bonus) / speedMult) * jitter)
+          const duration  = Math.max(500, ((workerDuration(def.baseDuration, slotLevel) * typeMult * supMult + bonus) / speedMult) * jitter)
 
           claimed.add(unit.id)
           workerBusy.current[def.id] = (workerBusy.current[def.id] || 0) + 1
@@ -843,7 +856,7 @@ export default function App() {
     const worker   = w[workerId]
     if (!def || (worker?.count || 0) < 1) return null
     const speedMult = globalSpeedMult(state) / researchRoleMult(state, def.id)
-    const dur       = Math.max(500, workerDuration(def.baseDuration, worker.level) / speedMult)
+    const dur       = Math.max(500, workerDuration(def.baseDuration, workerLevel(worker)) / speedMult)
     const secs      = (dur / 1000).toFixed(1)
     const crewTag   = worker.count > 1 ? ` ×${worker.count}` : ''
     return `🤖${crewTag} ${secs}s/unit · ${inputLen} waiting`
@@ -1723,11 +1736,13 @@ export default function App() {
             {shopTab === 'hire' && <>
             <div className="shop-title">{t('shop.pipelineStaff')}</div>
             {WORKER_DEFS.filter(def => workerStageUnlocked(def, state)).map(def => {
-              const worker    = w[def.id] || { count: 0, level: 1 }
+              const worker    = w[def.id] || (def.perHire ? { count: 0, level: 1, hireLevels: [] } : { count: 0, level: 1 })
               const hired     = worker.count > 0
               const maxCount  = workerMaxCount(def, state)
               const hireCost  = workerHireCost(def, worker.count, state)
-              const upg       = hired ? upgradeCost(def, worker.level) : null
+              const baseLevel = workerLevel(worker)     // per-hire: lowest hire; shared: worker.level
+              const maxedOut  = workerMaxLevel(worker) >= 5 && baseLevel >= 5
+              const upg       = hired && !maxedOut ? upgradeCost(def, baseLevel) : null
               const gate      = hired ? upgradeGate(worker, state) : null
               const upgGated  = hired && upg !== null && gate && !gate.allowed
               const status    = workerStatus[def.id] || 'idle'
@@ -1735,7 +1750,8 @@ export default function App() {
               const atCap     = worker.count >= maxCount
               const canHire   = !locked && !atCap && state.money >= hireCost
               const canUpg    = hired && upg !== null && !upgGated && state.money >= upg
-              const spd       = hired ? Math.round(workerDuration(def.baseDuration, worker.level) / 1000 * 10) / 10 : null
+              // Speed summary: use the floor level (newest/weakest hire dictates queue throughput on that slot).
+              const spd       = hired ? Math.round(workerDuration(def.baseDuration, baseLevel) / 1000 * 10) / 10 : null
 
               return (
                 <div key={def.id} className={`worker-card${hired ? ' hired' : ''}${locked ? ' locked' : ''}`}>
@@ -1746,7 +1762,14 @@ export default function App() {
                   <div className="wc-body">
                     <div className="wc-name">
                       {t('worker.' + def.id + '.label')}{worker.count > 1 ? ` ${t('shop.crew')}` : ''}
-                      {hired && <LevelDots level={worker.level} />}
+                      {hired && !def.perHire && <LevelDots level={worker.level} />}
+                      {hired && def.perHire && (
+                        <span className="wc-hire-levels">
+                          {[...worker.hireLevels].sort((a,b) => b - a).map((lv, i) => (
+                            <span key={i} className={`hl-pip hl-l${lv}`}>L{lv}</span>
+                          ))}
+                        </span>
+                      )}
                     </div>
                     <div className="wc-desc">
                       {locked
@@ -1785,12 +1808,14 @@ export default function App() {
                         className={`shop-btn upgrade${canUpg ? '' : ' dim'}`}
                         disabled={!canUpg}
                         onClick={() => dispatch({ type: 'UPGRADE_WORKER', payload: def.id })}
-                        title={upgGated ? `Sell ${gate.remaining} more at L${worker.level} to unlock` : undefined}
+                        title={upgGated
+                          ? `Sell ${gate.remaining} more at L${baseLevel} to unlock`
+                          : (def.perHire ? `Promotes the lowest-level hire from L${baseLevel} to L${baseLevel + 1}` : undefined)}
                       >
                         {upg
                           ? upgGated
-                            ? <><span>🔒 L{worker.level + 1}</span><br /><span className="shop-cost">{gate.since}/{gate.needed} sold</span></>
-                            : <><span>{t('shop.level')} {worker.level + 1}</span><br /><span className="shop-cost">${upg}</span></>
+                            ? <><span>🔒 L{baseLevel + 1}</span><br /><span className="shop-cost">{gate.since}/{gate.needed} sold</span></>
+                            : <><span>{def.perHire ? 'Promote' : t('shop.level')} L{baseLevel + 1}</span><br /><span className="shop-cost">${upg}</span></>
                           : <span className="maxed">{t('shop.max')}</span>
                         }
                       </button>
