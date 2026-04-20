@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d4a857"/>
+      <stop offset="1" stop-color="#a07a2e"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" ry="96" fill="url(#bg)"/>
+  <g transform="translate(66 120)">
+    <!-- laptop screen -->
+    <rect x="40" y="0" width="300" height="200" rx="14" ry="14" fill="#0f1115" stroke="#222" stroke-width="4"/>
+    <rect x="56" y="16" width="268" height="168" rx="6" ry="6" fill="#1a1d24"/>
+    <!-- pipeline bars on screen -->
+    <rect x="72" y="40"  width="150" height="16" rx="4" fill="#4fc3f7"/>
+    <rect x="72" y="70"  width="210" height="16" rx="4" fill="#5cf08a"/>
+    <rect x="72" y="100" width="120" height="16" rx="4" fill="#ff9a3c"/>
+    <rect x="72" y="130" width="180" height="16" rx="4" fill="#9b8cf0"/>
+    <!-- laptop base -->
+    <path d="M0 210 h380 l-30 48 h-320 z" fill="#0f1115" stroke="#222" stroke-width="4"/>
+    <rect x="155" y="218" width="70" height="8" rx="4" fill="#2a2d34"/>
+  </g>
+</svg>
