@@ -320,13 +320,17 @@ export default function App() {
 
   // Lot drip-feed: units land in pipeline.incoming from BUY_LOT; trickle into
   // unchecked so big lots don't flash-dump 20+ units at once.
+  // Target: ~3-5s to drain a full lot (spec Phase B). Step scales with queue
+  // size so a 50-unit bulk doesn't crawl in at 1/tick for 15 seconds.
   useEffect(() => {
+    const TICK_MS = 300
+    const TARGET_TICKS = 15   // 15 × 300ms = 4.5s target drain for any non-trivial lot
     const id = setInterval(() => {
       const inc = stateRef.current.pipeline?.incoming || []
       if (inc.length === 0) return
-      const step = inc.length > 30 ? 3 : inc.length > 12 ? 2 : 1
+      const step = Math.max(1, Math.ceil(inc.length / TARGET_TICKS))
       dispatch({ type: 'DRIP_INCOMING', payload: step })
-    }, 200)
+    }, TICK_MS)
     return () => clearInterval(id)
   }, [])
 
