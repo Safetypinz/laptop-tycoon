@@ -243,13 +243,14 @@ body {
   align-items: stretch;
   background: var(--surface);
   border: 1px solid var(--border);
-  overflow-x: auto;
   border-radius: 12px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 
 .ps-box {
-  flex: 1;
+  flex: 1 0 auto;
   min-width: 72px;
   padding: 14px 6px 10px;
   text-align: center;
