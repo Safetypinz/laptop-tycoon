@@ -374,13 +374,13 @@ export const WORKER_DEFS = [
     maxByStage: { garage: 1, shop: 1, storefront: 2, warehouse: 2, company: 3, regional: 3, national: 3, corporate: 4 } },
   { id: 'tech',        label: 'Repair Tech',  icon: '🔧', input: 'audited',   actionType: 'COMPLETE_REPAIR', hireCost: 150, upgBase: 120, baseDuration: DURATIONS.repair, desc: 'Repairs damaged units',       unlockSold: 15,
     maxByStage: { garage: 1, shop: 1, storefront: 2, warehouse: 2, company: 2, regional: 3, national: 3, corporate: 4 } },
-  { id: 'desktopTech', label: 'Desktop Tech', icon: '🖥️', input: 'audited',   actionType: 'COMPLETE_REPAIR', hireCost: 180, upgBase: 140, baseDuration: DURATIONS.repair, desc: 'Volume specialist — 50% faster on desktops, AIOs & monitors',  unlockSold: 0, unlockStage: 'shop',
+  { id: 'desktopTech', label: 'Desktop Tech', icon: '🖥️', input: 'audited',   actionType: 'COMPLETE_REPAIR', hireCost: 180, upgBase: 140, baseDuration: DURATIONS.repair, desc: 'Volume specialist — 50% faster on desktops, AIOs & monitors',  unlockSold: 35, unlockStage: 'shop',
     maxByStage: { shop: 1, storefront: 1, warehouse: 2, company: 2, regional: 2, national: 2, corporate: 3 } },
-  { id: 'utility',     label: 'Utility Tech', icon: '🧰', input: 'any',       actionType: 'UTILITY_ADVANCE',  hireCost: 120, upgBase: 80,  baseDuration: DURATIONS.audit,  desc: 'Flex hand. 1.5× slower, but covers any non-repair stage when primaries are busy.', unlockSold: 0, unlockStage: 'shop',
+  { id: 'utility',     label: 'Utility Tech', icon: '🧰', input: 'any',       actionType: 'UTILITY_ADVANCE',  hireCost: 120, upgBase: 80,  baseDuration: DURATIONS.audit,  desc: 'Flex hand. 1.5× slower, but covers any non-repair stage when primaries are busy.', unlockSold: 55, unlockStage: 'shop',
     maxByStage: { shop: 1, storefront: 1, warehouse: 2, company: 2, regional: 3, national: 3, corporate: 4 } },
-  { id: 'cleaner',     label: 'Cleaner',      icon: '🧹', input: 'imaged',    actionType: 'COMPLETE_CLEAN',  hireCost: 75,  upgBase: 50,  baseDuration: DURATIONS.clean,  desc: 'Cleans & preps units',        unlockSold: 30,
+  { id: 'cleaner',     label: 'Cleaner',      icon: '🧹', input: 'imaged',    actionType: 'COMPLETE_CLEAN',  hireCost: 75,  upgBase: 50,  baseDuration: DURATIONS.clean,  desc: 'Cleans & preps units',        unlockSold: 45,
     maxByStage: { garage: 1, shop: 2, storefront: 2, warehouse: 3, company: 4, regional: 5, national: 5, corporate: 5 } },
-  { id: 'imager',      label: 'Imager',       icon: '💿', input: 'repaired',  actionType: 'COMPLETE_IMAGE',  hireCost: 100, upgBase: 80,  baseDuration: DURATIONS.image,  desc: 'Installs OS & software',      unlockSold: 50,
+  { id: 'imager',      label: 'Imager',       icon: '💿', input: 'repaired',  actionType: 'COMPLETE_IMAGE',  hireCost: 100, upgBase: 80,  baseDuration: DURATIONS.image,  desc: 'Installs OS & software',      unlockSold: 75,
     maxByStage: { garage: 1, shop: 1, storefront: 2, warehouse: 2, company: 3, regional: 3, national: 3, corporate: 4 } },
 ]
 
@@ -414,6 +414,19 @@ export function workerStageUnlocked(def, state) {
 export function upgradeCost(def, currentLevel) {
   if (currentLevel >= 5) return null
   return Math.round(def.upgBase * currentLevel * 1.6)
+}
+
+// Sold-count thresholds between upgrades (counted since hire or previous upgrade).
+// Forces a crew to actually work at their current level before promotion.
+export const UPGRADE_SOLD_THRESHOLDS = { 2: 8, 3: 20, 4: 40, 5: 80 }
+export function upgradeGate(worker, state) {
+  if (!worker || worker.count < 1) return { allowed: false, needed: 0, since: 0 }
+  const nextLevel = worker.level + 1
+  if (nextLevel > 5) return { allowed: false, needed: 0, since: 0 }
+  const needed = UPGRADE_SOLD_THRESHOLDS[nextLevel] || 0
+  const anchor = worker.upgradedAtSold ?? 0
+  const since = (state.sold || 0) - anchor
+  return { allowed: since >= needed, needed, since, remaining: Math.max(0, needed - since) }
 }
 
 // Level 1 = base speed, Level 5 = 3.5x faster
@@ -692,14 +705,14 @@ export function agentConnectionRoll(state) {
 // ── Expansion stages ──────────────────────────────────────────────────────────
 
 export const EXPANSION_STAGES = [
-  { id: 'garage',     label: 'Home Garage', icon: '🏠', soldNeeded: 0,     lots: [1]           },
-  { id: 'shop',       label: 'Small Shop',  icon: '🏪', soldNeeded: 25,    lots: [1, 5, 10]    },
-  { id: 'storefront', label: 'Storefront',  icon: '🏬', soldNeeded: 60,    lots: [1, 10, 15]   },
-  { id: 'warehouse',  label: 'Warehouse',   icon: '🏭', soldNeeded: 120,   lots: [1, 10, 20]   },
-  { id: 'company',    label: 'Company',     icon: '🏢', soldNeeded: 500,   lots: [1, 20, 50]   },
-  { id: 'regional',   label: 'Regional HQ', icon: '🏙️', soldNeeded: 2000,  lots: [1, 50, 100]  },
-  { id: 'national',   label: 'National Ops', icon: '🌆', soldNeeded: 10000, lots: [1, 100, 250] },
-  { id: 'corporate',  label: 'Corporate',   icon: '🌐', soldNeeded: 50000, lots: [1, 250, 500] },
+  { id: 'garage',     label: 'Home Garage', icon: '🏠', soldNeeded: 0,     cost: 0,        lots: [1]           },
+  { id: 'shop',       label: 'Small Shop',  icon: '🏪', soldNeeded: 25,    cost: 300,      lots: [1, 5, 10]    },
+  { id: 'storefront', label: 'Storefront',  icon: '🏬', soldNeeded: 60,    cost: 1500,     lots: [1, 10, 15]   },
+  { id: 'warehouse',  label: 'Warehouse',   icon: '🏭', soldNeeded: 120,   cost: 5000,     lots: [1, 10, 20]   },
+  { id: 'company',    label: 'Company',     icon: '🏢', soldNeeded: 500,   cost: 25000,    lots: [1, 20, 50]   },
+  { id: 'regional',   label: 'Regional HQ', icon: '🏙️', soldNeeded: 2000,  cost: 150000,   lots: [1, 50, 100]  },
+  { id: 'national',   label: 'National Ops', icon: '🌆', soldNeeded: 10000, cost: 750000,   lots: [1, 100, 250] },
+  { id: 'corporate',  label: 'Corporate',   icon: '🌐', soldNeeded: 50000, cost: 4000000,  lots: [1, 250, 500] },
 ]
 
 // Discount per lot size
@@ -712,6 +725,45 @@ export function currentExpansion(state) {
 export function nextExpansion(state) {
   const idx = EXPANSION_STAGES.findIndex(s => s.id === state.expansionStage)
   return EXPANSION_STAGES[idx + 1] || null
+}
+
+// Stage-anchored XP requirement: each tier requires you to *actually sell*
+// roughly (nextThreshold - currentThreshold) units at the current stage before
+// promotion unlocks. Prevents leapfrogging multiple tiers in a row once cash
+// has stockpiled at a lower stage.
+export function expansionSoldNeededAtStage(state) {
+  const cur  = currentExpansion(state)
+  const next = nextExpansion(state)
+  if (!cur || !next) return 0
+  return Math.max(0, next.soldNeeded - cur.soldNeeded)
+}
+
+export function expansionSoldAtStage(state) {
+  const anchor = state.stageUpgradedAtSold ?? 0
+  return Math.max(0, (state.sold || 0) - anchor)
+}
+
+// True once the player has met BOTH: the sold threshold AND put in enough
+// sold units at the current stage since entering it. Promotion is opt-in.
+export function expansionReady(state) {
+  const next = nextExpansion(state)
+  if (!next) return null
+  if ((state.sold || 0) < next.soldNeeded) return null
+  if (expansionSoldAtStage(state) < expansionSoldNeededAtStage(state)) return null
+  return next
+}
+
+export function canAffordExpansion(state) {
+  const next = expansionReady(state)
+  if (!next) return false
+  return (state.money || 0) >= (next.cost || 0)
+}
+
+// For the in-progress UI: shows how close the player is to the tier's XP gate.
+export function expansionXpProgress(state) {
+  const need = expansionSoldNeededAtStage(state)
+  const have = Math.min(need, expansionSoldAtStage(state))
+  return { have, need, ready: need > 0 && have >= need, remaining: Math.max(0, need - have) }
 }
 
 // ── Facilities (one-time upgrades with passive effects) ──────────────────────
@@ -1978,6 +2030,7 @@ export function makeInitialState() {
     workers: Object.fromEntries(WORKER_DEFS.map(d => [d.id, { count: 0, level: 1 }])),
     specials: Object.fromEntries(SPECIAL_HIRES.map(d => [d.id, { hired: false, level: 1 }])),
     expansionStage: 'garage',
+    stageUpgradedAtSold: 0,
     activeSupplier: 'wholesale',
     activeChannel: 'ebay',
     sold: 0,
@@ -2498,10 +2551,11 @@ export function reducer(state, action) {
       if (bidWar) s = mkLog(s, `🔥 Bidding war! 2× payout — buyers went nuts.`)
       s = pruneLots(s)
 
-      const next = nextExpansion(s)
-      if (next && newSold >= next.soldNeeded) {
-        s = mkLog({ ...s, expansionStage: next.id, lastPayrollAt: Date.now() + STAGE_PAYROLL_GRACE_MS },
-          `🎉 UPGRADED to ${next.label}! Lot buying unlocked: ${next.lots.filter(n => n > 1).join(', ')} units. Payroll paused 2 min to settle in.`)
+      const wasReady = !!expansionReady(state)
+      const isReady  = !!expansionReady(s)
+      if (isReady && !wasReady) {
+        const next = nextExpansion(s)
+        s = mkLog(s, `🏆 ${next.label} unlocked! Upgrade in the topbar for $${next.cost.toLocaleString()}.`)
       }
       return checkMilestones(s)
     }
@@ -2556,12 +2610,29 @@ export function reducer(state, action) {
         ? `🚚 [${ch.icon} ${ch.label}] Sold for $${totalNet} · profit ${totalProfit >= 0 ? '+' : ''}$${totalProfit}`
         : `🚀 [${ch.icon} ${ch.label}] Bulk ×${laptops.length} · $${totalNet} net${totalFees ? ` (−$${totalFees} fees)` : ''} · ${totalProfit >= 0 ? '+' : ''}$${totalProfit} profit`)
       if (bidWars > 0) s = mkLog(s, `🔥 Bidding war on ${bidWars} unit${bidWars > 1 ? 's' : ''} — 2× payout.`)
-      const next = nextExpansion(s)
-      if (next && newSold >= next.soldNeeded) {
-        s = mkLog({ ...s, expansionStage: next.id, lastPayrollAt: Date.now() + STAGE_PAYROLL_GRACE_MS },
-          `🎉 UPGRADED to ${next.label}! Lot buying unlocked: ${next.lots.filter(n => n > 1).join(', ')} units. Payroll paused 2 min to settle in.`)
+      const wasReady = !!expansionReady(state)
+      const isReady  = !!expansionReady(s)
+      if (isReady && !wasReady) {
+        const next = nextExpansion(s)
+        s = mkLog(s, `🏆 ${next.label} unlocked! Upgrade in the topbar for $${next.cost.toLocaleString()}.`)
       }
       s = pruneLots(s)
+      return checkMilestones(s)
+    }
+
+    case 'EXPAND_ACCEPT': {
+      const next = expansionReady(state)
+      if (!next) return state
+      const cost = next.cost || 0
+      if ((state.money || 0) < cost) return mkLog(state, `❌ Need $${cost.toLocaleString()} to upgrade to ${next.label}.`)
+      const s = mkLog({
+        ...state,
+        money: state.money - cost,
+        totalSpent: (state.totalSpent || 0) + cost,
+        expansionStage: next.id,
+        stageUpgradedAtSold: state.sold || 0,
+        lastPayrollAt: Date.now() + STAGE_PAYROLL_GRACE_MS,
+      }, `🎉 UPGRADED to ${next.label} for $${cost.toLocaleString()}! Lot buying: ${next.lots.filter(n => n > 1).join(', ')} units. Payroll paused 2 min.`)
       return checkMilestones(s)
     }
 
@@ -2576,11 +2647,14 @@ export function reducer(state, action) {
       const nextCount = worker.count + 1
       // First-tech onboarding: gift 3 parts so they can actually start repairing
       const giftParts = (def.id === 'tech' && worker.count === 0 && (state.parts || 0) === 0) ? 3 : 0
+      // Anchor the upgrade gate to current sold count on first hire, so the crew
+      // has to actually ship units at L1 before promotion becomes available.
+      const upgradedAtSold = worker.count === 0 ? (state.sold || 0) : (worker.upgradedAtSold ?? 0)
       let s = mkLog({
         ...state,
         money: state.money - cost,
         parts: (state.parts || 0) + giftParts,
-        workers: { ...state.workers, [def.id]: { ...worker, count: nextCount } },
+        workers: { ...state.workers, [def.id]: { ...worker, count: nextCount, upgradedAtSold } },
       }, giftParts > 0
         ? `👤 Hired ${def.label} #${nextCount}! 🎁 Starter kit: +${giftParts} parts to get them going.`
         : `👤 Hired ${def.label} #${nextCount}! (×${nextCount} total)`)
@@ -2592,12 +2666,14 @@ export function reducer(state, action) {
       if (!def) return state
       const worker = state.workers[def.id]
       if (!worker || worker.count < 1 || worker.level >= 5) return state
+      const gate = upgradeGate(worker, state)
+      if (!gate.allowed) return mkLog(state, `🔒 ${def.label} needs ${gate.remaining} more sold at L${worker.level} before promotion.`)
       const cost = upgradeCost(def, worker.level)
       if (state.money < cost) return mkLog(state, `❌ Need $${cost} to upgrade ${def.label}`)
       return mkLog({
         ...state,
         money: state.money - cost,
-        workers: { ...state.workers, [def.id]: { ...worker, level: worker.level + 1 } },
+        workers: { ...state.workers, [def.id]: { ...worker, level: worker.level + 1, upgradedAtSold: state.sold || 0 } },
       }, `⬆️ ${def.label} crew upgraded to Level ${worker.level + 1}!`)
     }
 
@@ -2981,6 +3057,9 @@ export function reducer(state, action) {
 
     case 'SET_LANG':
       return { ...state, lang: action.payload === 'es' ? 'es' : 'en' }
+
+    case 'SET_AUTO_SHIP':
+      return { ...state, autoShip: !!action.payload }
 
     case 'GAME_OVER':
       if (state.gameOver) return state

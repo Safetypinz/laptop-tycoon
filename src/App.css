@@ -85,6 +85,36 @@ body {
 .tb-stage .tbs-icon { font-size: 0.9rem }
 .tb-stage .tbs-label { color: var(--text); font-weight: 600 }
 
+.tbs-upgrade {
+  margin-left: 6px;
+  background: linear-gradient(135deg, #f6c042, #e59a2a);
+  color: #1a1a1a;
+  border: 1px solid #b07a1a;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tbs-upgrade.dim { opacity: 0.55; }
+.tbs-upgrade:hover  { transform: scale(1.04) }
+.tbs-upgrade:active { transform: scale(0.96) }
+
+.expand-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  width: 100%;
+}
+.expand-btns .lu-dismiss { margin: 0 }
+.lu-dismiss-alt {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border: 1px solid var(--border) !important;
+}
+
 .lang-toggle {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1202,20 +1232,29 @@ body {
   border: 1px solid var(--border);
   border-left: 3px solid #c96a3f;
   border-radius: 10px;
-  padding: 10px 14px;
   margin: 6px 0;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  overflow: hidden;
 }
+.scrap-bin.closed { padding: 0; }
+.scrap-bin.open   { padding: 6px 10px 10px; }
 
 .scrap-head {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-width: 140px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
 }
+.scrap-bin.closed .scrap-head:hover { background: rgba(201, 106, 63, 0.08); }
+.scrap-chevron { margin-left: auto; color: var(--muted); font-size: 0.8rem; }
 
 .scrap-icon { font-size: 1.3rem; }
 .scrap-label { font-weight: 700; color: #d89167; letter-spacing: 0.02em; }
@@ -1315,6 +1354,31 @@ body {
   white-space: nowrap;
 }
 
+button.expansion-bar {
+  font-family: inherit;
+  cursor: pointer;
+  width: 100%;
+  justify-content: space-between;
+}
+.expansion-bar.ready {
+  background: linear-gradient(90deg, #f6c042, #e59a2a);
+  border-color: #b07a1a;
+  color: #1a1a1a;
+}
+.expansion-bar.ready .exp-label { color: #1a1a1a; }
+.expansion-bar.ready .exp-ready-tag {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+.expansion-bar.ready.short {
+  background: linear-gradient(90deg, #8a6b20, #6d5217);
+  color: #efe4c6;
+}
+.expansion-bar.ready.short .exp-label { color: #efe4c6 }
+.expansion-bar.ready:hover  { transform: scale(1.01) }
+.expansion-bar.ready:active { transform: scale(0.99) }
+
 /* ── Lot buying ───────────────────────────────────────────────── */
 
 .lot-grid {
@@ -1412,7 +1476,39 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin: 8px 2px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
+
+.autoship-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.autoship-toggle .ats-dot {
+  width: 8px; height: 8px;
+  background: #555;
+  border-radius: 50%;
+}
+.autoship-toggle.on {
+  background: rgba(46, 204, 113, 0.12);
+  border-color: #2ecc71;
+  color: #7ee4a5;
+}
+.autoship-toggle.on .ats-dot { background: #2ecc71; }
 
 .supplier-strip {
   display: flex;
@@ -2423,6 +2519,44 @@ body {
   padding: 8px 12px;
   margin-bottom: 20px;
 }
+
+.lu-items {
+  width: 100%;
+  background: var(--surface2);
+  border-radius: 10px;
+  padding: 10px 12px 12px;
+  margin-bottom: 18px;
+  max-height: 42vh;
+  overflow-y: auto;
+  text-align: left;
+}
+.lu-items-head {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.lu-items-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lu-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.lu-item-icon { font-size: 1rem; }
+.lu-item-name { font-weight: 700; color: var(--text); font-size: 0.82rem; }
+.lu-item-detail { color: var(--muted); font-size: 0.72rem; flex: 1; }
 
 .lu-dismiss {
   background: var(--accent);

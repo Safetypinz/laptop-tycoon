@@ -768,6 +768,12 @@ try {
       profile.tryUpgrade()
       profile.tryAcceptContracts()
       profile.tryShip()
+      // Paid expansion: accept as soon as affordable (keeps playtest progressing through stages).
+      const nextIdx = EXPANSION_STAGES.findIndex(s => s.id === state.expansionStage) + 1
+      const nextStage = EXPANSION_STAGES[nextIdx]
+      if (nextStage && state.sold >= nextStage.soldNeeded && state.money >= (nextStage.cost || 0) + 50) {
+        dispatch({ type: 'EXPAND_ACCEPT' })
+      }
     }
 
     // Stage-change stamps
@@ -896,7 +902,11 @@ console.log('\n=== SOFTLOCK SNIFF (end-state) ===')
 console.log(JSON.stringify(stuck, null, 2))
 
 console.log('\n=== LAST 20 GAME LOG ENTRIES ===')
-for (const e of (state.log || []).slice(0, 20)) console.log(`  ${e.t} ${e.msg}${e.count > 1 ? ` (×${e.count})` : ''}`)
+const { tf: _tf } = await import('../src/i18n.js')
+for (const e of (state.log || []).slice(0, 20)) {
+  const txt = e.key ? _tf(e.key, 'en', e.args || {}) : (e.msg || '(empty)')
+  console.log(`  ${e.t} ${txt}${e.count > 1 ? ` (×${e.count})` : ''}`)
+}
 
 // Restore real Date.now (cosmetic)
 Date.now = realDateNow

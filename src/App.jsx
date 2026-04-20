@@ -5,7 +5,7 @@ import {
   EXPANSION_STAGES, LOT_DISCOUNT, SUPPLIERS,
   SPECIAL_HIRES, specialUpgCost, specialHireCost,
   rollAuditEvents, rollRepairEvents,
-  upgradeCost, workerDuration, workerMaxCount, workerHireCost, workerAcceptsUnit, workerStageUnlocked,
+  upgradeCost, workerDuration, workerMaxCount, workerHireCost, workerAcceptsUnit, workerStageUnlocked, upgradeGate,
   activeBuffs, bossActive, bossReady, bossCooldownLeft,
   moraleUnlocked, moraleFace,
   payrollUnlocked, wageDue, PAYROLL_INTERVAL_MS,
@@ -13,7 +13,7 @@ import {
   RESEARCH, researchUnlocked, researchOwned, researchRoleMult,
   allShops, secondShopUnlocked, SECOND_SHOP_COST,
   globalSpeedMult,
-  currentExpansion, nextExpansion,
+  currentExpansion, nextExpansion, expansionReady, canAffordExpansion, expansionXpProgress,
   MILESTONES,
   CHANNELS, channelUnlocked,
   typeInfo, supplierCarries, estimatedBuyPrice, supplierFromId, supplierUnlocked,
@@ -124,6 +124,13 @@ export default function App() {
   const lang = state.lang || 'en'
   const t = (key) => translate(key, lang)
   const tf = (key, args) => translatef(key, lang, args)
+  const logText = (e) => {
+    if (e?.key) {
+      const out = translatef(e.key, lang, e.args || {})
+      if (out && out !== e.key) return out
+    }
+    return e?.msg || ''
+  }
   const [working, setWorking]     = useState(null)          // { label, progress }
   const [queue, setQueue]         = useState([])            // queued manual action ids
   const [workerStatus, setWS]     = useState({})            // { [id]: 'idle'|'working' }
@@ -136,6 +143,8 @@ export default function App() {
   const [tickNow, setTickNow]     = useState(Date.now())     // for buff countdowns
   const [eventToast, setEventToast] = useState(null)         // { msg, moneyDelta, partsDelta, expiresAt }
   const [eventOpen, setEventOpen]   = useState(false)        // true = full card shown, false = chip only
+  const [expandModal, setExpandModal] = useState(false)      // paid-expansion confirm modal
+  const [scrapOpen, setScrapOpen]   = useState(false)        // scrap bin expanded?
   const [offlineSummary, setOfflineSummary] = useState(() => {
     const s = pendingOfflineSummary
     pendingOfflineSummary = null
@@ -256,7 +265,23 @@ export default function App() {
         if (fac) newOnes.push({ kind, icon: fac.icon, title: t('unlock.newFacility'), name: t('facility.' + fac.id + '.label'), detail: `${t('facility.' + fac.id + '.desc')} · $${fac.cost.toLocaleString()} ${t('unlock.toInstall')}` })
       }
     }
-    if (newOnes.length) setUnlockQ(q => [...q, ...newOnes])
+    if (newOnes.length) {
+      const stageCard = newOnes.find(o => o.kind === 'stage')
+      if (stageCard && newOnes.length > 1) {
+        const rest = newOnes.filter(o => o !== stageCard)
+        const bundle = {
+          kind: 'stage',
+          icon: stageCard.icon,
+          title: stageCard.title,
+          name: stageCard.name,
+          detail: stageCard.detail,
+          items: rest.map(o => ({ icon: o.icon, name: o.name, detail: o.detail, kind: o.kind })),
+        }
+        setUnlockQ(q => [...q, bundle])
+      } else {
+        setUnlockQ(q => [...q, ...newOnes])
+      }
+    }
     seenUnlocksRef.current = current
   }, [state.expansionStage, state.sold])
 
@@ -316,6 +341,18 @@ export default function App() {
         dispatch({ type: 'RECEIVE_LOT' })
       }
     }, 500)
+    return () => clearInterval(id)
+  }, [])
+
+  // Auto-ship ticker — when the player turns it on (e.g. walking away),
+  // flush packed units every 15s so payroll doesn't starve.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const s = stateRef.current
+      if (!s.autoShip) return
+      if ((s.pipeline?.packed?.length || 0) === 0) return
+      dispatch({ type: 'BULK_SHIP' })
+    }, 15000)
     return () => clearInterval(id)
   }, [])
 
@@ -855,6 +892,20 @@ export default function App() {
           <div className="tb-stage">
             <span className="tbs-icon">{expansion.icon}</span>
             <span className="tbs-label">{expansion.label}</span>
+            {(() => {
+              const ready = expansionReady(state)
+              if (!ready) return null
+              const afford = canAffordExpansion(state)
+              return (
+                <button
+                  className={`tbs-upgrade${afford ? '' : ' dim'}`}
+                  onClick={() => setExpandModal(true)}
+                  title={tf('expand.cta', { label: ready.label, cost: ready.cost.toLocaleString() })}
+                >
+                  ↗ ${ready.cost.toLocaleString()}
+                </button>
+              )
+            })()}
           </div>
           <button
             className="lang-toggle"
@@ -1073,19 +1124,34 @@ export default function App() {
               const bottleneck = count >= 5
               const next       = count > 0 ? p[s.key][0] : null
               const incoming   = s.key === 'unchecked' ? (p.incoming?.length || 0) : 0
-              const clickable  = s.key === 'packed' && count > 0
+              // Map pipeline stage → manual action id. 'packed' ships directly.
+              const stageAction = { unchecked: 'audit', audited: 'repair', repaired: 'image', imaged: 'clean', cleaned: 'pack' }[s.key]
+              const actionAutoHandled = stageAction && {
+                audit: isAuto('auditor'),
+                repair: isAuto('tech') || isAuto('desktopTech'),
+                image: isAuto('imager'),
+                clean: isAuto('cleaner'),
+                pack: isAuto('packer'),
+              }[stageAction]
+              const clickable  = count > 0 && ((s.key === 'packed') || (stageAction && !actionAutoHandled))
+              const onTileClick = !clickable ? undefined
+                : s.key === 'packed' ? ship
+                : () => { enqueue(stageAction); if (tab !== 'actions') setTab('actions') }
+              const tileTitle = !clickable ? undefined
+                : s.key === 'packed' ? t('pipe.clickShipAll')
+                : tf('pipe.clickDo', { action: t('action.' + stageAction) })
               return (
                 <div
                   key={s.key}
                   className={`ps-box${bottleneck ? ' bottleneck' : ''}${clickable ? ' ps-clickable' : ''}`}
                   style={{ '--c': s.color }}
-                  onClick={clickable ? ship : undefined}
-                  title={clickable ? t('pipe.clickShipAll') : undefined}
+                  onClick={onTileClick}
+                  title={tileTitle}
                 >
                   <div className="ps-icon">{s.icon}</div>
                   <div className="ps-count">{count}</div>
                   <div className="ps-label">{s.label}</div>
-                  {clickable && <div className="ps-ship-hint">{t('pipe.clickShip')}</div>}
+                  {clickable && <div className="ps-ship-hint">{s.key === 'packed' ? t('pipe.clickShip') : t('action.' + stageAction)}</div>}
                   {next && (
                     <div className="ps-dot" style={{ color: QUALITY_INFO[next.quality].color }}>
                       {typeInfo(next.type || 'laptop').icon}<span className="ps-qdot">●</span>
@@ -1134,7 +1200,7 @@ export default function App() {
           })()}
         </section>
 
-        {/* Scrap Bin — failed repairs accumulate; bulk-process when it fills up */}
+        {/* Scrap Bin — collapsed chip by default, expand to process */}
         {(p.scrapped?.length || 0) > 0 && (() => {
           const pile       = p.scrapped
           const n          = pile.length
@@ -1143,45 +1209,73 @@ export default function App() {
           const ebayCash   = pile.reduce((sum, u) => sum + Math.round((u.sellPrice || 0) * SCRAP_EBAY_MULT), 0)
           const ebayOk     = scrapEbayUnlocked(state)
           return (
-            <section className="scrap-bin">
-              <div className="scrap-head">
+            <section className={`scrap-bin${scrapOpen ? ' open' : ' closed'}`}>
+              <button
+                className="scrap-head"
+                onClick={() => setScrapOpen(o => !o)}
+                title={scrapOpen ? t('scrap.collapse') : t('scrap.expand')}
+              >
                 <span className="scrap-icon">🗑️</span>
                 <span className="scrap-label">{t('scrap.title')}</span>
                 <span className="scrap-count">×{n}</span>
-              </div>
-              <div className="scrap-actions">
-                <button className="scrap-btn" onClick={() => dispatch({ type: 'SCRAP_PART_OUT' })}>
-                  <span className="sb-top">{t('scrap.partOut')}</span>
-                  <span className="sb-sub">+{partsYield} {t('scrap.partYield')}</span>
-                </button>
-                <button className="scrap-btn" onClick={() => dispatch({ type: 'SCRAP_SELL_JUNK' })}>
-                  <span className="sb-top">{t('scrap.sellJunk')}</span>
-                  <span className="sb-sub">+${junkCash}</span>
-                </button>
-                <button
-                  className={`scrap-btn${ebayOk ? '' : ' dim'}`}
-                  disabled={!ebayOk}
-                  onClick={() => dispatch({ type: 'SCRAP_SELL_EBAY' })}
-                  title={ebayOk ? t('scrap.ebayTitle') : t('scrap.ebayUnlockHint')}
-                >
-                  <span className="sb-top">{t('scrap.sellEbay')}</span>
-                  <span className="sb-sub">{ebayOk ? `+$${ebayCash}` : t('scrap.ebayLocked')}</span>
-                </button>
-              </div>
+                <span className="scrap-chevron">{scrapOpen ? '▾' : '▸'}</span>
+              </button>
+              {scrapOpen && (
+                <div className="scrap-actions">
+                  <button className="scrap-btn" onClick={() => dispatch({ type: 'SCRAP_PART_OUT' })}>
+                    <span className="sb-top">{t('scrap.partOut')}</span>
+                    <span className="sb-sub">+{partsYield} {t('scrap.partYield')}</span>
+                  </button>
+                  <button className="scrap-btn" onClick={() => dispatch({ type: 'SCRAP_SELL_JUNK' })}>
+                    <span className="sb-top">{t('scrap.sellJunk')}</span>
+                    <span className="sb-sub">+${junkCash}</span>
+                  </button>
+                  <button
+                    className={`scrap-btn${ebayOk ? '' : ' dim'}`}
+                    disabled={!ebayOk}
+                    onClick={() => dispatch({ type: 'SCRAP_SELL_EBAY' })}
+                    title={ebayOk ? t('scrap.ebayTitle') : t('scrap.ebayUnlockHint')}
+                  >
+                    <span className="sb-top">{t('scrap.sellEbay')}</span>
+                    <span className="sb-sub">{ebayOk ? `+$${ebayCash}` : t('scrap.ebayLocked')}</span>
+                  </button>
+                </div>
+              )}
             </section>
           )
         })()}
 
         {/* Expansion progress */}
-        {nextExp && (
-          <div className="expansion-bar">
-            <span className="exp-label">{expansion.icon} {expansion.label}</span>
-            <div className="exp-track">
-              <div className="exp-fill" style={{ width: `${Math.min(100, (state.sold / nextExp.soldNeeded) * 100)}%` }} />
+        {nextExp && (() => {
+          const ready = expansionReady(state)
+          const afford = canAffordExpansion(state)
+          if (ready) {
+            return (
+              <button
+                className={`expansion-bar ready${afford ? '' : ' short'}`}
+                onClick={() => setExpandModal(true)}
+                title={tf('expand.cta', { label: ready.label, cost: ready.cost.toLocaleString() })}
+              >
+                <span className="exp-label">{expansion.icon} {expansion.label}</span>
+                <span className="exp-ready-tag">
+                  ↗ {tf('expand.readyCta', { label: ready.label, cost: ready.cost.toLocaleString() })}
+                </span>
+              </button>
+            )
+          }
+          // Progress toward next tier is stage-anchored: sold-at-current-stage / (delta between tiers).
+          const xp = expansionXpProgress(state)
+          const pct = xp.need > 0 ? Math.min(100, (xp.have / xp.need) * 100) : 0
+          return (
+            <div className="expansion-bar">
+              <span className="exp-label">{expansion.icon} {expansion.label}</span>
+              <div className="exp-track">
+                <div className="exp-fill" style={{ width: `${pct}%` }} />
+              </div>
+              <span className="exp-next">{xp.have}/{xp.need} → {nextExp.icon} {nextExp.label}</span>
             </div>
-            <span className="exp-next">{state.sold}/{nextExp.soldNeeded} → {nextExp.icon} {nextExp.label}</span>
-          </div>
-        )}
+          )
+        })()}
 
         {/* Event log — always visible */}
         <section className="log-panel">
@@ -1194,12 +1288,16 @@ export default function App() {
           </div>
           <div className="log log-compact">
             {state.log.length === 0 && <div className="log-empty">{t('log.empty')}</div>}
-            {state.log.slice(0, 4).map(e => (
-              <div key={e.id} className={`log-row kind-${logKind(e.msg)}`}>
-                <span className="log-t">{e.t}</span>
-                <span className="log-msg">{e.msg}{e.count > 1 && <span className="log-x"> ×{e.count}</span>}</span>
-              </div>
-            ))}
+            {state.log.slice(0, 4).map(e => {
+              const txt = logText(e)
+              if (!txt) return null
+              return (
+                <div key={e.id} className={`log-row kind-${logKind(txt)}`}>
+                  <span className="log-t">{e.t}</span>
+                  <span className="log-msg">{txt}{e.count > 1 && <span className="log-x"> ×{e.count}</span>}</span>
+                </div>
+              )
+            })}
           </div>
         </section>
 
@@ -1255,7 +1353,17 @@ export default function App() {
         {/* Actions panel */}
         {tab === 'actions' && (
           <div className="actions-wrap">
-            <div className="strip-label">{t('action.sellOn')}</div>
+            <div className="strip-label">
+              {t('action.sellOn')}
+              <button
+                className={`autoship-toggle${state.autoShip ? ' on' : ''}`}
+                onClick={() => dispatch({ type: 'SET_AUTO_SHIP', payload: !state.autoShip })}
+                title={state.autoShip ? t('autoship.onTitle') : t('autoship.offTitle')}
+              >
+                <span className="ats-dot" />
+                {state.autoShip ? t('autoship.on') : t('autoship.off')}
+              </button>
+            </div>
             <div className="supplier-strip">
               {CHANNELS.map(ch => {
                 const unlocked = channelUnlocked(ch, state)
@@ -1620,11 +1728,13 @@ export default function App() {
               const maxCount  = workerMaxCount(def, state)
               const hireCost  = workerHireCost(def, worker.count, state)
               const upg       = hired ? upgradeCost(def, worker.level) : null
+              const gate      = hired ? upgradeGate(worker, state) : null
+              const upgGated  = hired && upg !== null && gate && !gate.allowed
               const status    = workerStatus[def.id] || 'idle'
               const locked    = state.sold < (def.unlockSold || 0)
               const atCap     = worker.count >= maxCount
               const canHire   = !locked && !atCap && state.money >= hireCost
-              const canUpg    = hired && upg !== null && state.money >= upg
+              const canUpg    = hired && upg !== null && !upgGated && state.money >= upg
               const spd       = hired ? Math.round(workerDuration(def.baseDuration, worker.level) / 1000 * 10) / 10 : null
 
               return (
@@ -1675,9 +1785,12 @@ export default function App() {
                         className={`shop-btn upgrade${canUpg ? '' : ' dim'}`}
                         disabled={!canUpg}
                         onClick={() => dispatch({ type: 'UPGRADE_WORKER', payload: def.id })}
+                        title={upgGated ? `Sell ${gate.remaining} more at L${worker.level} to unlock` : undefined}
                       >
                         {upg
-                          ? <><span>{t('shop.level')} {worker.level + 1}</span><br /><span className="shop-cost">${upg}</span></>
+                          ? upgGated
+                            ? <><span>🔒 L{worker.level + 1}</span><br /><span className="shop-cost">{gate.since}/{gate.needed} sold</span></>
+                            : <><span>{t('shop.level')} {worker.level + 1}</span><br /><span className="shop-cost">${upg}</span></>
                           : <span className="maxed">{t('shop.max')}</span>
                         }
                       </button>
@@ -2174,12 +2287,16 @@ export default function App() {
             </div>
             <div className="log log-full">
               {state.log.length === 0 && <div className="log-empty">{t('log.emptyShort')}</div>}
-              {state.log.map(e => (
-                <div key={e.id} className={`log-row kind-${logKind(e.msg)}`}>
-                  <span className="log-t">{e.t}</span>
-                  <span className="log-msg">{e.msg}{e.count > 1 && <span className="log-x"> ×{e.count}</span>}</span>
-                </div>
-              ))}
+              {state.log.map(e => {
+                const txt = logText(e)
+                if (!txt) return null
+                return (
+                  <div key={e.id} className={`log-row kind-${logKind(txt)}`}>
+                    <span className="log-t">{e.t}</span>
+                    <span className="log-msg">{txt}{e.count > 1 && <span className="log-x"> ×{e.count}</span>}</span>
+                  </div>
+                )
+              })}
             </div>
           </div>
         </div>
@@ -2368,19 +2485,65 @@ export default function App() {
 
       {levelUpCard && (
         <div className={`levelup-overlay kind-${levelUpCard.kind}`} onClick={() => setLevelUp(null)}>
-          <div className="levelup-card">
+          <div className="levelup-card" onClick={(e) => e.stopPropagation()}>
             <div className="lu-fireworks">🎉🎊🎉</div>
             <div className="lu-icon">{levelUpCard.icon}</div>
             <div className="lu-title">{levelUpCard.title}</div>
             <div className="lu-name">{levelUpCard.name}</div>
             {levelUpCard.detail && <div className="lu-perks">{levelUpCard.detail}</div>}
             {levelUpCard.sub && <div className="lu-sub">{levelUpCard.sub}</div>}
+            {Array.isArray(levelUpCard.items) && levelUpCard.items.length > 0 && (
+              <div className="lu-items">
+                <div className="lu-items-head">{t('unlock.alsoUnlocked')}</div>
+                <ul className="lu-items-list">
+                  {levelUpCard.items.map((it, i) => (
+                    <li key={i} className={`lu-item lu-item-${it.kind}`}>
+                      <span className="lu-item-icon">{it.icon}</span>
+                      <span className="lu-item-name">{it.name}</span>
+                      {it.detail && <span className="lu-item-detail">{it.detail}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <button className="lu-dismiss" onClick={() => setLevelUp(null)}>
               {levelUpCard.kind === 'fail' ? t('levelup.failCta') : t('levelup.winCta')}
             </button>
           </div>
         </div>
       )}
+
+      {expandModal && (() => {
+        const ready = expansionReady(state)
+        if (!ready) { setExpandModal(false); return null }
+        const cur = currentExpansion(state)
+        const afford = canAffordExpansion(state)
+        const gap = Math.max(0, (ready.cost || 0) - (state.money || 0))
+        return (
+          <div className="levelup-overlay kind-ok" onClick={() => setExpandModal(false)}>
+            <div className="levelup-card" onClick={(e) => e.stopPropagation()}>
+              <div className="lu-icon">{ready.icon}</div>
+              <div className="lu-title">{t('expand.title')}</div>
+              <div className="lu-name">{cur.icon} {cur.label} → {ready.icon} {ready.label}</div>
+              <div className="lu-perks">{tf('expand.perks', { lots: ready.lots.filter(n => n > 1).join(', ') })}</div>
+              <div className="lu-sub">{tf('expand.cost', { cost: ready.cost.toLocaleString() })}</div>
+              {!afford && <div className="lu-sub" style={{ color: '#ff7a7a' }}>{tf('expand.short', { gap: gap.toLocaleString() })}</div>}
+              <div className="expand-btns">
+                <button
+                  className={`lu-dismiss${afford ? '' : ' dim'}`}
+                  disabled={!afford}
+                  onClick={() => { dispatch({ type: 'EXPAND_ACCEPT' }); setExpandModal(false) }}
+                >
+                  {tf('expand.pay', { cost: ready.cost.toLocaleString() })}
+                </button>
+                <button className="lu-dismiss lu-dismiss-alt" onClick={() => setExpandModal(false)}>
+                  {t('expand.bypass')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       <div className="footer">
         <button className="footer-btn" onClick={exportSave}>{t('footer.export')}</button>
