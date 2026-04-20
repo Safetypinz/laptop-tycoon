@@ -119,6 +119,7 @@ body {
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--text);
+  font-family: inherit;
   font-size: 0.74rem;
   font-weight: 700;
   padding: 4px 10px;
@@ -2971,6 +2972,7 @@ button.expansion-bar {
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
+  font-family: inherit;
   font-weight: 600;
   font-size: 0.78rem;
   cursor: pointer;
