@@ -170,6 +170,9 @@ const defaultProfile = {
     if (uncheckedPipelineLen() >= 10) return
     const needHireReserve = (state.workers?.auditor?.count || 0) === 0
     if (needHireReserve && state.money < 75 + cheap) return
+    // Payroll reserve: don't drop cash below 1.3× next payroll due.
+    const due = wageDue(state)
+    if (due > 0 && state.money - cheap < due * 1.3) return
     const qty = pickLotSize(1.3)
     dispatch({ type: qty > 1 ? 'BUY_LOT' : 'BUY', payload: qty > 1 ? qty : {} })
   },
