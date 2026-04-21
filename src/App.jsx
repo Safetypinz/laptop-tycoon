@@ -454,6 +454,15 @@ export default function App() {
         if (totalParts < threshold && !hasPending && s.money >= 25) {
           dispatch({ type: 'ORDER_PARTS', payload: 'ebay' })
         }
+        // Softlock escape: tech queue backed up, no parts & can't afford any,
+        // scrap pile available → cash it out. Guards against the dead-state
+        // where audited units need parts the player can't buy.
+        const scrapPile = (s.pipeline?.scrapped || []).length
+        const auditedWaiting = (s.pipeline?.audited || []).length
+        const partsStuck = auditedWaiting >= 5 && totalParts === 0 && !hasPending && s.money < 25
+        if (scrapPile >= 5 && partsStuck) {
+          dispatch({ type: 'SCRAP_SELL_JUNK' })
+        }
       }
     }, 2000)
     return () => clearInterval(id)

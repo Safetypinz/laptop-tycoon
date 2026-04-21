@@ -769,14 +769,14 @@ export function agentConnectionRoll(state) {
 // ── Expansion stages ──────────────────────────────────────────────────────────
 
 export const EXPANSION_STAGES = [
-  { id: 'garage',     label: 'Home Garage', icon: '🏠', soldNeeded: 0,     cost: 0,        lots: [1]           },
-  { id: 'shop',       label: 'Small Shop',  icon: '🏪', soldNeeded: 25,    cost: 300,      lots: [1, 5, 10]    },
-  { id: 'storefront', label: 'Storefront',  icon: '🏬', soldNeeded: 60,    cost: 1500,     lots: [1, 10, 15]   },
-  { id: 'warehouse',  label: 'Warehouse',   icon: '🏭', soldNeeded: 120,   cost: 5000,     lots: [1, 10, 20]   },
-  { id: 'company',    label: 'Company',     icon: '🏢', soldNeeded: 500,   cost: 25000,    lots: [1, 20, 50]   },
-  { id: 'regional',   label: 'Regional HQ', icon: '🏙️', soldNeeded: 2000,  cost: 150000,   lots: [1, 50, 100]  },
-  { id: 'national',   label: 'National Ops', icon: '🌆', soldNeeded: 10000, cost: 750000,   lots: [1, 100, 250] },
-  { id: 'corporate',  label: 'Corporate',   icon: '🌐', soldNeeded: 50000, cost: 4000000,  lots: [1, 250, 500] },
+  { id: 'garage',     label: 'Home Garage', icon: '🏠', soldNeeded: 0,     cost: 0,        grant: 0,       lots: [1]           },
+  { id: 'shop',       label: 'Small Shop',  icon: '🏪', soldNeeded: 25,    cost: 200,      grant: 200,     lots: [1, 5, 10]    },
+  { id: 'storefront', label: 'Storefront',  icon: '🏬', soldNeeded: 60,    cost: 900,      grant: 600,     lots: [1, 10, 15]   },
+  { id: 'warehouse',  label: 'Warehouse',   icon: '🏭', soldNeeded: 120,   cost: 3000,     grant: 2000,    lots: [1, 10, 20]   },
+  { id: 'company',    label: 'Company',     icon: '🏢', soldNeeded: 500,   cost: 7000,     grant: 3500,    lots: [1, 20, 50]   },
+  { id: 'regional',   label: 'Regional HQ', icon: '🏙️', soldNeeded: 2000,  cost: 100000,   grant: 30000,   lots: [1, 50, 100]  },
+  { id: 'national',   label: 'National Ops', icon: '🌆', soldNeeded: 10000, cost: 500000,   grant: 150000,  lots: [1, 100, 250] },
+  { id: 'corporate',  label: 'Corporate',   icon: '🌐', soldNeeded: 50000, cost: 2500000,  grant: 700000,  lots: [1, 250, 500] },
 ]
 
 // Discount per lot size
@@ -957,13 +957,13 @@ export const PAYROLL_INTERVAL_MS = 60_000
 export const STAGE_PAYROLL_GRACE_MS = 120_000
 
 export const WORKER_WAGES = {
-  auditor:     8,
-  packer:      6,
-  tech:       15,
-  desktopTech: 18,
-  utility:     12,
-  cleaner:     7,
-  imager:     10,
+  auditor:     5,
+  packer:      4,
+  tech:       10,
+  desktopTech: 12,
+  utility:      8,
+  cleaner:      4,
+  imager:       7,
 }
 
 export const SPECIAL_WAGES = {
@@ -1341,16 +1341,18 @@ export const DECISION_EVENTS = [
     icon: '🏛️',
     title: 'IRS Audit',
     body: 'A letter from the IRS. They want to "discuss" your books. You can settle now or roll the dice in court.',
-    condition: s => s.sold >= 25,
+    // Warehouse+ only — IRS doesn't come after garage operators. Prevents the
+    // $800-min penalty from one-shotting a $100 starter.
+    condition: s => s.sold >= 120,
     options: [
-      { label: s => `Settle — $${bankrollHit(s, 0.08, 800, 8000).toLocaleString()}`, apply: s => {
-        const cost = bankrollHit(s, 0.08, 800, 8000)
+      { label: s => `Settle — $${bankrollHit(s, 0.08, 400, 8000).toLocaleString()}`, apply: s => {
+        const cost = bankrollHit(s, 0.08, 400, 8000)
         if (s.money < cost) return mkLog(s, 'log.irs.lien', { cost: cost.toLocaleString() })
         return mkLog({ ...s, money: s.money - cost, totalSpent: s.totalSpent + cost }, 'log.irs.settled', { cost: cost.toLocaleString() })
       }},
       { label: 'Fight it in court', apply: s => {
         if (Math.random() < 0.5) return mkLog(s, 'log.irs.won')
-        const fine = bankrollHit(s, 0.20, 2000, 20000)
+        const fine = bankrollHit(s, 0.20, 1000, 20000)
         return mkLog({ ...s, money: s.money - fine, totalSpent: s.totalSpent + fine }, 'log.irs.lost', { fine: fine.toLocaleString() })
       }},
     ],
@@ -1820,15 +1822,18 @@ export function pickDecisionEvent(state) {
 
 // ── B2B Contracts ────────────────────────────────────────────────────────────
 
+// Quantities bumped 2026-04-20 from playtest feedback: company-tier contracts
+// were trivial (10–30 units done in a minute). Aimed at "hundreds of computers"
+// feel — company tier now 30–80 units, deposits and rewards scaled ~3×.
 export const CONTRACT_TEMPLATES = [
-  { id: 'starter_laptops',   icon: '📋', label: 'Starter Order',     required: { laptop: 10 },                      durationMs: 180_000, deposit: 200,   reward: 800,    unlockStage: 'company'  },
-  { id: 'tablet_rush',       icon: '📱', label: 'Tablet Rush',       required: { tablet: 15 },                      durationMs: 240_000, deposit: 500,   reward: 2000,   unlockStage: 'company'  },
-  { id: 'corp_refresh',      icon: '🏢', label: 'Corp Refresh',      required: { desktop: 20, laptop: 10 },         durationMs: 300_000, deposit: 1000,  reward: 4500,   unlockStage: 'company'  },
-  { id: 'apple_premium',     icon: '🍎', label: 'Apple Premium',     required: { apple: 5 },                        durationMs: 240_000, deposit: 1500,  reward: 6000,   unlockStage: 'regional' },
-  { id: 'phone_bulk',        icon: '📞', label: 'Phone Bulk',        required: { phone: 40 },                       durationMs: 300_000, deposit: 1200,  reward: 5500,   unlockStage: 'regional' },
-  { id: 'school_district',   icon: '🎓', label: 'School District',   required: { desktop: 30, monitor: 20 },        durationMs: 480_000, deposit: 3000,  reward: 14000,  unlockStage: 'corporate' },
-  { id: 'office_buildout',   icon: '🏭', label: 'Office Buildout',   required: { aio: 25, monitor: 25 },            durationMs: 420_000, deposit: 4000,  reward: 18000,  unlockStage: 'corporate' },
-  { id: 'gov_mega',          icon: '🏛️', label: 'Gov Mega Deal',    required: { laptop: 100, tablet: 50, phone: 50 }, durationMs: 900_000, deposit: 10000, reward: 55000, unlockStage: 'corporate' },
+  { id: 'starter_laptops',   icon: '📋', label: 'Starter Order',     required: { laptop: 30 },                      durationMs: 240_000, deposit: 600,   reward: 2800,   unlockStage: 'company'  },
+  { id: 'tablet_rush',       icon: '📱', label: 'Tablet Rush',       required: { tablet: 45 },                      durationMs: 300_000, deposit: 1500,  reward: 7000,   unlockStage: 'company'  },
+  { id: 'corp_refresh',      icon: '🏢', label: 'Corp Refresh',      required: { desktop: 60, laptop: 30 },         durationMs: 360_000, deposit: 3000,  reward: 16000,  unlockStage: 'company'  },
+  { id: 'apple_premium',     icon: '🍎', label: 'Apple Premium',     required: { apple: 20 },                       durationMs: 300_000, deposit: 4500,  reward: 22000,  unlockStage: 'regional' },
+  { id: 'phone_bulk',        icon: '📞', label: 'Phone Bulk',        required: { phone: 120 },                      durationMs: 360_000, deposit: 3600,  reward: 19000,  unlockStage: 'regional' },
+  { id: 'school_district',   icon: '🎓', label: 'School District',   required: { desktop: 90, monitor: 60 },        durationMs: 540_000, deposit: 9000,  reward: 48000,  unlockStage: 'corporate' },
+  { id: 'office_buildout',   icon: '🏭', label: 'Office Buildout',   required: { aio: 75, monitor: 75 },            durationMs: 480_000, deposit: 12000, reward: 62000,  unlockStage: 'corporate' },
+  { id: 'gov_mega',          icon: '🏛️', label: 'Gov Mega Deal',    required: { laptop: 300, tablet: 150, phone: 150 }, durationMs: 1080_000, deposit: 30000, reward: 180000, unlockStage: 'corporate' },
 ]
 
 // Scale a contract template to match the player's current stage + headcount.
@@ -2691,15 +2696,18 @@ export function reducer(state, action) {
       const next = expansionReady(state)
       if (!next) return state
       const cost = next.cost || 0
+      const grant = next.grant || 0
       if ((state.money || 0) < cost) return mkLog(state, `❌ Need $${cost.toLocaleString()} to upgrade to ${next.label}.`)
+      const grantNote = grant > 0 ? ` Startup grant: +$${grant.toLocaleString()}.` : ''
       const s = mkLog({
         ...state,
-        money: state.money - cost,
+        money: state.money - cost + grant,
         totalSpent: (state.totalSpent || 0) + cost,
+        totalEarned: (state.totalEarned || 0) + grant,
         expansionStage: next.id,
         stageUpgradedAtSold: state.sold || 0,
         lastPayrollAt: Date.now() + STAGE_PAYROLL_GRACE_MS,
-      }, `🎉 UPGRADED to ${next.label} for $${cost.toLocaleString()}! Lot buying: ${next.lots.filter(n => n > 1).join(', ')} units. Payroll paused 2 min.`)
+      }, `🎉 UPGRADED to ${next.label} for $${cost.toLocaleString()}!${grantNote} Lot buying: ${next.lots.filter(n => n > 1).join(', ')} units. Payroll paused 2 min.`)
       return checkMilestones(s)
     }
 

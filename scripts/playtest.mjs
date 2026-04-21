@@ -28,15 +28,29 @@ const realDateNow = Date.now.bind(Date)
 Date.now = () => fakeNow
 // Preserve `new Date()` for log timestamps — they still read real clock, NBD.
 
+// ─── 1a. Seed Math.random for deterministic sim runs ─────────────────────────
+// Mulberry32 PRNG seeded from SEED env (default 1). Stable runs = stable tuning.
+{
+  const seed = Number(process.env.SEED || 1)
+  let t = seed >>> 0
+  Math.random = function mulberry32() {
+    t = (t + 0x6D2B79F5) >>> 0
+    let r = t
+    r = Math.imul(r ^ (r >>> 15), r | 1)
+    r ^= r + Math.imul(r ^ (r >>> 7), r | 61)
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296
+  }
+}
+
 // ─── 2. Import game.js ────────────────────────────────────────────────────────
 const game = await import('../src/game.js')
 const {
   reducer, makeInitialState,
-  WORKER_DEFS, SPECIAL_HIRES, PART_SOURCES, SUPPLIERS, EXPANSION_STAGES,
+  WORKER_DEFS, WORKER_WAGES, SPECIAL_HIRES, PART_SOURCES, SUPPLIERS, EXPANSION_STAGES,
   DURATIONS, DECISION_EVENTS, CONTRACT_TEMPLATES,
   wageDue, isBankrupt,
   workerStageUnlocked, workerMaxCount, workerHireCost, workerAcceptsUnit, workerDuration,
-  upgradeCost,
+  upgradeCost, upgradeGate,
   specialHireCost,
   partsNeeded, partSourceUnlocked,
   rollAuditEvents, rollRepairEvents, supplierFromId,
@@ -54,7 +68,7 @@ const dispatchCounts = {}
 const snapshots = []               // every 10 sim-seconds
 const actionLog = []               // every dispatch (bounded)
 
-const SIM_MINUTES = 30
+const SIM_MINUTES = Number(process.env.SIM_MINUTES || 30)
 const SIM_END = START_EPOCH + SIM_MINUTES * 60_000
 const TICK_MS = 100                // 100ms per loop iteration
 const SNAPSHOT_MS = 10_000
@@ -238,9 +252,35 @@ const defaultProfile = {
     if (!state.activeEvent) return
     const ev = DECISION_EVENTS.find(e => e.id === state.activeEvent)
     if (!ev) { dispatch({ type: 'DISMISS_EVENT' }); return }
-    const safeIdx = ev.options.length >= 2 ? 1 : 0
-    dispatch({ type: 'RESOLVE_EVENT', payload: { optionIndex: safeIdx } })
-    note(`EVENT resolved: ${ev.id} opt=${safeIdx}`)
+    // Score each option; pick the lowest expected-cost one.
+    // - Extract $N from label as known cost.
+    // - Gamble keywords (fight/sue/court/risk/gamble) are treated as 2x the labeled
+    //   cost because outcomes are 50/50 and downsides often bigger than upsides.
+    // - No-$ label with safe keyword (decline/walk/skip/pass/refund) → cost 0.
+    // - Unknown → 9999 (last resort).
+    let bestIdx = 0
+    let bestScore = Infinity
+    for (let i = 0; i < ev.options.length; i++) {
+      const labelFn = ev.options[i].label
+      const label = typeof labelFn === 'function' ? labelFn(state) : String(labelFn || '')
+      const isGamble = /fight|sue|court|risk|gamble|try your luck|roll/i.test(label)
+      const isSafeDecline = /walk away|decline|skip|pass|ignore|refuse|no thanks/i.test(label)
+      const m = label.match(/\$([\d,]+)/)
+      let score
+      if (m) {
+        score = Number(m[1].replace(/,/g, ''))
+        if (isGamble) score *= 2
+      } else if (isSafeDecline) {
+        score = 0
+      } else if (isGamble) {
+        score = 1500 // unlabeled gamble — assume bad
+      } else {
+        score = 100 // unknown, assume small downside
+      }
+      if (score < bestScore) { bestScore = score; bestIdx = i }
+    }
+    dispatch({ type: 'RESOLVE_EVENT', payload: { optionIndex: bestIdx } })
+    note(`EVENT resolved: ${ev.id} opt=${bestIdx} score=${bestScore}`)
   },
   tryShip() {
     if (state.gameOver) return
@@ -257,13 +297,55 @@ const aggressiveProfile = {
     if (state.gameOver) return
     const cheap = cheapestLotCost()
     if (state.money < cheap) return // can I afford even 1 unit?
+    // Payroll reserve: never drop cash below 1.3× next payroll due. Prevents
+    // the sim from draining cash to $0 between revenue hits and then missing
+    // payroll by a few bucks.
+    const due = wageDue(state)
+    if (due > 0) {
+      const estUnit = currentLotCostEstimate()
+      if (state.money - estUnit < due * 1.3) return
+    }
+    // Save for critical first-hire: if core role is unstaffed and queue is
+    // piling up, don't keep buying until we have cash for the hire.
+    const criticalRoles = ['auditor', 'tech', 'packer', 'cleaner', 'imager']
+    for (const id of criticalRoles) {
+      const def = WORKER_DEFS.find(d => d.id === id)
+      if (!def) continue
+      if (!workerStageUnlocked(def, state)) continue
+      if (state.sold < (def.unlockSold || 0)) continue
+      const w = state.workers[def.id]
+      if (w && w.count > 0) continue
+      const inputLen = (state.pipeline[def.input] || []).length
+      if (inputLen < 5) continue
+      const cost = workerHireCost(def, 0, state)
+      if (state.money < cost * 1.3) return // save for the hire
+    }
+    // Save for next-stage upgrade once sold threshold is met, BUT only if
+    // pipeline has enough inflight units to keep workers busy (avoid deadlock).
+    const nextIdx = EXPANSION_STAGES.findIndex(s => s.id === state.expansionStage) + 1
+    const nextStage = EXPANSION_STAGES[nextIdx]
+    if (nextStage && state.sold >= nextStage.soldNeeded) {
+      const p = state.pipeline
+      const inflight = (p.incoming?.length || 0) + (p.unchecked?.length || 0)
+                     + (p.audited?.length || 0) + (p.repaired?.length || 0)
+                     + (p.cleaned?.length || 0) + (p.imaged?.length || 0)
+                     + (p.packed?.length || 0)
+      // Skip buying while saving for upgrade (target: cost × 1.35, matches auto-upgrade
+      // threshold of 1.25× with a small safety margin). Need pipeline not starved.
+      if (inflight >= 5 && state.money < (nextStage.cost || 0) * 1.35) return
+    }
     // Don't hoard — if there's stage capacity, grab the biggest lot we can pay for.
     const qty = pickLotSize(1.0)
     dispatch({ type: qty > 1 ? 'BUY_LOT' : 'BUY', payload: qty > 1 ? qty : {} })
   },
+  _lastHireAt: -Infinity,
   tryHireWorkers() {
     if (state.gameOver) return
-    // Fire every unlocked role + every allowed extra the moment cash permits.
+    // Throttle: at most one hire per 45s sim-time. Prevents over-hiring spirals
+    // that outpace revenue + tank morale via missed payroll.
+    if (fakeNow - this._lastHireAt < 45_000) return
+    // Queue-gated hiring: only hire when the role's input queue has pressure
+    // AND we have a cash cushion. Keeps cashflow positive while still scaling.
     const order = ['auditor', 'tech', 'packer', 'cleaner', 'imager', 'desktopTech']
     for (const id of order) {
       const def = WORKER_DEFS.find(d => d.id === id)
@@ -274,10 +356,21 @@ const aggressiveProfile = {
       const cap = workerMaxCount(def, state)
       if (w.count >= cap) continue
       const cost = workerHireCost(def, w.count, state)
-      if (state.money < cost) continue
+      // First-of-role: lower bar to kickstart pipeline.
+      const inputLen = (state.pipeline[def.input] || []).length
+      const minQueue = w.count === 0 ? 1 : 5
+      const cashMult = w.count === 0 ? 1.5 : 3.0
+      if (inputLen < minQueue) continue
+      if (state.money < cost * cashMult) continue
+      // Wage pressure check: don't hire if new wages would exceed recent sales velocity.
+      // Revenue roughly = sold × 20 — current total spent, averaged over sim time.
+      // Simplified: cap total wages at 40% of money.
+      const nextWages = wageDue(state) + (WORKER_WAGES[def.id] || 10) * (state.expansionStage === 'garage' ? 0 : 1)
+      if (state.expansionStage !== 'garage' && nextWages > state.money * 0.5) continue
       dispatch({ type: 'HIRE_WORKER', payload: def.id })
+      this._lastHireAt = fakeNow
       metrics.workersHired++
-      note(`HIRE ${def.id} #${(state.workers[def.id]?.count) || '?'} @ money=$${state.money}`)
+      note(`HIRE ${def.id} #${(state.workers[def.id]?.count) || '?'} (queue=${inputLen}) @ money=$${state.money}`)
       return
     }
   },
@@ -299,6 +392,8 @@ const aggressiveProfile = {
   },
   tryHireSpecials() {
     if (state.gameOver) return
+    // Specials are expensive ($2000+) — require real cash cushion, not the
+    // bare minimum. Otherwise one IRS audit drains everything.
     const order = ['manager', 'inventory', 'buyer', 'sales', 'headAuditor']
     for (const id of order) {
       const def = SPECIAL_HIRES.find(d => d.id === id)
@@ -309,7 +404,8 @@ const aggressiveProfile = {
       const reqIdx = EXPANSION_STAGES.findIndex(s => s.id === def.unlockStage)
       if (curIdx < reqIdx) continue
       const cost = specialHireCost(def, state)
-      if (state.money < cost) continue
+      // Need cost plus a $1000 "oh shit" buffer after the hire.
+      if (state.money < cost + 1000) continue
       dispatch({ type: 'HIRE_SPECIAL', payload: def.id })
       metrics.specialsHired++
       note(`HIRE_SPECIAL ${def.id} @ money=$${state.money} cost=$${cost}`)
@@ -319,12 +415,17 @@ const aggressiveProfile = {
   tryUpgrade() {
     if (state.gameOver) return
     // Upgrade any worker where possible, cheapest first.
+    // Respect upgradeGate (needs N sold since last upgrade) — else sim dispatches
+    // reducer-rejected UPGRADE_WORKER every 500ms forever.
     const candidates = []
     for (const def of WORKER_DEFS) {
       const w = state.workers[def.id]
       if (!w || w.count < 1 || w.level >= 5) continue
+      const gate = upgradeGate(w, state)
+      if (!gate.allowed) continue
       const cost = upgradeCost(def, w.level)
-      if (state.money < cost) continue
+      if (cost == null) continue
+      if (state.money < cost * 1.5) continue // cash cushion
       candidates.push({ def, cost })
     }
     if (candidates.length === 0) return
@@ -351,6 +452,20 @@ const aggressiveProfile = {
   },
   tryResolveEvent() { return defaultProfile.tryResolveEvent() },
   tryShip() { return defaultProfile.tryShip() },
+  tryScrapEscape() {
+    if (state.gameOver) return
+    const scrapPile = (state.pipeline?.scrapped || []).length
+    if (scrapPile < 5) return
+    const incomingParts = (state.partsIncoming || []).reduce((n, o) => n + o.qty, 0)
+    const totalParts = (state.parts || 0) + incomingParts
+    const auditedWaiting = (state.pipeline?.audited || []).length
+    const hasPending = (state.partsIncoming || []).length > 0
+    const partsStuck = auditedWaiting >= 5 && totalParts === 0 && !hasPending && state.money < 25
+    if (partsStuck) {
+      dispatch({ type: 'SCRAP_SELL_JUNK' })
+      note(`SCRAP_SELL_JUNK escape: ${scrapPile} units`)
+    }
+  },
 }
 
 // ─── Hoarder: turtle. Save a buffer, hire only when queues back up ────────────
@@ -761,18 +876,23 @@ try {
     // Heuristic actions fire every ~500ms
     if ((fakeNow - START_EPOCH) % 500 < TICK_MS) {
       profile.tryResolveEvent()
+      profile.tryHireWorkers()  // before tryBuyLot — don't drain cash needed for first hire
       profile.tryBuyLot()
       profile.tryOrderParts()
-      profile.tryHireWorkers()
       profile.tryHireSpecials()
       profile.tryUpgrade()
       profile.tryAcceptContracts()
       profile.tryShip()
-      // Paid expansion: accept as soon as affordable (keeps playtest progressing through stages).
+      if (profile.tryScrapEscape) profile.tryScrapEscape()
+      // Paid expansion: require 25% cushion on top of cost so post-upgrade
+      // wage + lot-buy shock doesn't bust the player.
       const nextIdx = EXPANSION_STAGES.findIndex(s => s.id === state.expansionStage) + 1
       const nextStage = EXPANSION_STAGES[nextIdx]
-      if (nextStage && state.sold >= nextStage.soldNeeded && state.money >= (nextStage.cost || 0) + 50) {
-        dispatch({ type: 'EXPAND_ACCEPT' })
+      if (nextStage && state.sold >= nextStage.soldNeeded) {
+        const cost = nextStage.cost || 0
+        if (state.money >= cost * 1.25) {
+          dispatch({ type: 'EXPAND_ACCEPT' })
+        }
       }
     }
 
