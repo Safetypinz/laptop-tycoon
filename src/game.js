@@ -803,7 +803,13 @@ export function expansionSoldNeededAtStage(state) {
 }
 
 export function expansionSoldAtStage(state) {
-  const anchor = state.stageUpgradedAtSold ?? 0
+  // Anchor defaults to 0 on fresh saves. For old saves / migrations, if anchor
+  // is lower than the current stage's own threshold, snap it up — otherwise
+  // the XP bar can report "ready" (LINE B satisfied) while sold count still
+  // lags LINE A, leaving a "full bar, no upgrade button" dead-state.
+  const cur = currentExpansion(state)
+  const rawAnchor = state.stageUpgradedAtSold ?? 0
+  const anchor = Math.max(rawAnchor, cur?.soldNeeded || 0)
   return Math.max(0, (state.sold || 0) - anchor)
 }
 
