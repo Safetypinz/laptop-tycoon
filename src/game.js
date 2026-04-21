@@ -2099,7 +2099,7 @@ export function makeInitialState() {
   return {
     money: 200,
     pipeline: { incoming: [], unchecked: [], audited: [], repaired: [], cleaned: [], imaged: [], packed: [], scrapped: [] },
-    parts: 0,
+    parts: 3,
     partsIncoming: [],
     lotsIncoming: [],
     workers: Object.fromEntries(WORKER_DEFS.map(d => [
@@ -2213,6 +2213,10 @@ export function reducer(state, action) {
   const p = state.pipeline
 
   switch (action.type) {
+
+    case 'ADD_LOG': {
+      return mkLog(state, action.payload)
+    }
 
     case 'SET_SUPPLIER': {
       const sup = SUPPLIERS.find(s => s.id === action.payload)

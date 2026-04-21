@@ -807,7 +807,10 @@ export default function App() {
         const u      = sp.audited[0]
         const sup    = u.supplierId ? supplierFromId(u.supplierId) : null
         const needed = partsNeeded(u.quality)
-        if ((s.parts || 0) < needed) return 'no-parts'
+        if ((s.parts || 0) < needed) {
+          dispatch({ type: 'ADD_LOG', payload: `❌ Need ${needed} part${needed > 1 ? 's' : ''} to repair — order from 🛒 eBay.` })
+          return 'no-parts'
+        }
         dispatch({ type: 'CONSUME_PARTS', payload: needed })
         const invLvl = s.specials?.inventory?.hired ? (s.specials.inventory.level || 1) : 0
         const repairMult = (u.repairMult || 1) * ([1, 0.90, 0.80, 0.70][invLvl] || 1)
