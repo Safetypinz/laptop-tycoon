@@ -352,8 +352,8 @@ export const PART_SOURCES = [
   },
 ]
 
-export function partsNeeded() {
-  return 1
+export function partsNeeded(quality) {
+  return quality === 'bad' ? 2 : 1
 }
 
 export function partSourceUnlocked(src, state) {
@@ -618,6 +618,21 @@ export function isBankrupt(state) {
 export function floorMgrAutoResolves(state) {
   const fm = state?.specials?.manager
   return !!(fm?.hired && fm.level >= 3)
+}
+
+// Floor Manager (any level): types to prioritize based on the active contract's
+// unmet demand. Returns sorted type list (largest remaining need first), or null
+// if no FM / no contract / all types met.
+export function contractPriorityTypes(state) {
+  const fm = state?.specials?.manager
+  if (!fm?.hired) return null
+  const prog = contractProgress(state)
+  if (!prog) return null
+  const pending = Object.entries(prog)
+    .filter(([, p]) => !p.done)
+    .sort((a, b) => (b[1].need - b[1].have) - (a[1].need - a[1].have))
+    .map(([type]) => type)
+  return pending.length > 0 ? pending : null
 }
 
 export function specialUpgCost(def, currentLevel, state) {

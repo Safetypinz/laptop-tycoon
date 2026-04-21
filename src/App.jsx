@@ -22,7 +22,7 @@ import {
   SCRAP_PART_YIELD, SCRAP_JUNK_PER_UNIT, SCRAP_EBAY_MULT, scrapEbayUnlocked,
   DEVICE_TYPES,
   FACILITIES, facilityUnlocked,
-  DECISION_EVENTS, pickDecisionEvent, floorMgrAutoResolves, isBankrupt,
+  DECISION_EVENTS, pickDecisionEvent, floorMgrAutoResolves, contractPriorityTypes, isBankrupt,
   CONTRACT_TEMPLATES, contractUnlocked, contractProgress, contractAllMet, contractTimeLeft, contractsFeatureVisible, scaledContract, maxConcurrentContracts, activeContractsList,
 } from './game'
 import { t as translate, tf as translatef } from './i18n'
@@ -664,8 +664,19 @@ export default function App() {
 
         const queue  = s.pipeline[def.input] || []
         // Eligible units: in the input queue, accepted by this role, not yet claimed.
-        const eligible = queue.filter(u => u && !claimed.has(u.id) && workerAcceptsUnit(def, u, s))
+        let eligible = queue.filter(u => u && !claimed.has(u.id) && workerAcceptsUnit(def, u, s))
         if (eligible.length === 0)                              return
+
+        // Floor Manager auto-priority: if a contract is active, reorder eligible
+        // so units matching unmet demand get picked up first.
+        const priorityTypes = contractPriorityTypes(s)
+        if (priorityTypes) {
+          const rank = type => {
+            const i = priorityTypes.indexOf(type || 'laptop')
+            return i === -1 ? 999 : i
+          }
+          eligible = [...eligible].sort((a, b) => rank(a.type) - rank(b.type))
+        }
 
         const slots = Math.min(count - busy, eligible.length)
         // Track parts reserved *during this tick iteration* for multi-tech parallelism.
