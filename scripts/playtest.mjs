@@ -170,14 +170,20 @@ const defaultProfile = {
     if (uncheckedPipelineLen() >= 10) return
     const needHireReserve = (state.workers?.auditor?.count || 0) === 0
     if (needHireReserve && state.money < 75 + cheap) return
-    // Payroll reserve: don't drop cash below 1.3× next payroll due.
+    // Payroll reserve: don't drop cash below 1.5× next payroll due.
     const due = wageDue(state)
-    if (due > 0 && state.money - cheap < due * 1.3) return
+    if (due > 0 && state.money - cheap < due * 1.5) return
+    // Pipeline backpressure: if repair+image stages are clogged (>50 units),
+    // new lots will just add dead inventory. Pause buying until drain.
+    const p = state.pipeline
+    const clog = (p.audited?.length || 0) + (p.repaired?.length || 0)
+    if (clog > 50) return
     const qty = pickLotSize(1.3)
     dispatch({ type: qty > 1 ? 'BUY_LOT' : 'BUY', payload: qty > 1 ? qty : {} })
   },
   tryHireWorkers() {
     if (state.gameOver) return
+    // Pass 1: ensure every unlocked role has at least one worker (top-down).
     const order = ['auditor', 'tech', 'packer', 'cleaner', 'imager', 'desktopTech']
     for (const id of order) {
       const def = WORKER_DEFS.find(d => d.id === id)
@@ -185,20 +191,40 @@ const defaultProfile = {
       if (!workerStageUnlocked(def, state)) continue
       if (state.sold < (def.unlockSold || 0)) continue
       const w = state.workers[def.id] || { count: 0, level: 1 }
+      if (w.count > 0) continue
+      const cap = workerMaxCount(def, state)
+      if (w.count >= cap) continue
+      const cost = workerHireCost(def, 0, state)
+      const requiredBuffer = def.id === 'auditor' ? 1.0 : 1.2
+      if (state.money < cost * requiredBuffer) continue
+      dispatch({ type: 'HIRE_WORKER', payload: def.id })
+      metrics.workersHired++
+      note(`HIRE ${def.id} (first) @ money=$${state.money}`)
+      return
+    }
+    // Pass 2: scale up the role with the largest input queue (bottleneck-first).
+    let bestRole = null
+    let bestQueue = 2 // require at least 3 to justify another hire
+    for (const id of order) {
+      const def = WORKER_DEFS.find(d => d.id === id)
+      if (!def) continue
+      if (!workerStageUnlocked(def, state)) continue
+      if (state.sold < (def.unlockSold || 0)) continue
+      const w = state.workers[def.id] || { count: 0, level: 1 }
+      if (w.count === 0) continue
       const cap = workerMaxCount(def, state)
       if (w.count >= cap) continue
       const cost = workerHireCost(def, w.count, state)
-      const firstOfRole = w.count === 0
-      const requiredBuffer = firstOfRole && def.id === 'auditor' ? 1.0 : firstOfRole ? 1.2 : 2.0
-      if (state.money < cost * requiredBuffer) continue
-      if (!firstOfRole) {
-        const inputLen = (state.pipeline[def.input] || []).length
-        if (inputLen < 3) continue
-      }
-      dispatch({ type: 'HIRE_WORKER', payload: def.id })
+      if (state.money < cost * 2.0) continue
+      // Normalize by worker count so a 50-queue with 5 workers ranks below a 20-queue with 1 worker.
+      const inputLen = (state.pipeline[def.input] || []).length
+      const pressure = inputLen / w.count
+      if (pressure > bestQueue) { bestQueue = pressure; bestRole = def.id }
+    }
+    if (bestRole) {
+      dispatch({ type: 'HIRE_WORKER', payload: bestRole })
       metrics.workersHired++
-      note(`HIRE ${def.id} #${(state.workers[def.id]?.count) || '?'} @ money=$${state.money}`)
-      return
+      note(`HIRE ${bestRole} (scale, pressure=${bestQueue.toFixed(1)}) @ money=$${state.money}`)
     }
   },
   tryOrderParts() {
