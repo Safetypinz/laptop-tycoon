@@ -538,22 +538,28 @@ body {
 .parts-desc { font-size: 0.66rem; color: var(--muted); line-height: 1.3 }
 
 .parts-incoming {
-  margin-top: 8px;
-  font-size: 0.72rem;
-  color: var(--muted);
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: rgba(99, 179, 237, 0.08);
+  border: 1px solid rgba(99, 179, 237, 0.25);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
 }
 
 .parts-eta {
-  padding: 2px 8px;
+  padding: 4px 10px;
   background: var(--surface2);
-  border-radius: 10px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--accent);
 }
 
 .ps-chevron {
@@ -2017,6 +2023,45 @@ button.expansion-bar {
 .fm-mode-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* ── Event outcome toast ─────────────────────────────────────── */
+.alert-toast {
+  position: fixed;
+  bottom: 96px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 900;
+  max-width: min(420px, calc(100vw - 24px));
+  background: #1a1410;
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  border-left: 3px solid #ef4444;
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+}
+.alert-toast.at-success {
+  background: #0f1a14;
+  border: 1px solid rgba(74, 222, 128, 0.55);
+  border-left: 3px solid #4ade80;
+}
+.alert-toast .at-icon { font-size: 1rem; opacity: 0.9; }
+.alert-toast .at-msg  { flex: 1; }
+.alert-toast .at-close { color: var(--muted); font-size: 1.1rem; opacity: 0.6; }
+@media (max-width: 640px) {
+  .alert-toast {
+    bottom: 80px;
+    left: 12px;
+    right: 12px;
+    transform: none;
+    max-width: none;
+  }
+}
+
 .event-toast {
   position: fixed;
   top: 96px;

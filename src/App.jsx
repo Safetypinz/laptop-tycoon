@@ -152,6 +152,7 @@ export default function App() {
   const [logOpen, setLogOpen]     = useState(false)
   const [tickNow, setTickNow]     = useState(Date.now())     // for buff countdowns
   const [eventToast, setEventToast] = useState(null)         // { msg, moneyDelta, partsDelta, expiresAt }
+  const [alertToast, setAlertToast] = useState(null)         // { msg, icon, variant, expiresAt } for action feedback
   const [eventOpen, setEventOpen]   = useState(false)        // true = full card shown, false = chip only
   const [expandModal, setExpandModal] = useState(false)      // paid-expansion confirm modal
   const [scrapOpen, setScrapOpen]   = useState(false)        // scrap bin expanded?
@@ -781,7 +782,21 @@ export default function App() {
     if (!p.packed.length) return
     dispatch({ type: 'BULK_SHIP' })
   }
-  function enqueue(id) { setQueue(q => [...q, id]) }
+  function enqueue(id) {
+    setQueue(q => {
+      const currentCount = q.filter(x => x === id).length
+      const sp = stateRef.current.pipeline
+      const cap = {
+        audit:  sp.unchecked.length,
+        repair: sp.unchecked.length + sp.audited.length,
+        image:  sp.unchecked.length + sp.audited.length + sp.repaired.length,
+        clean:  sp.unchecked.length + sp.audited.length + sp.repaired.length + sp.imaged.length,
+        pack:   sp.unchecked.length + sp.audited.length + sp.repaired.length + sp.imaged.length + sp.cleaned.length,
+      }[id] ?? 0
+      if (currentCount >= cap) return q
+      return [...q, id]
+    })
+  }
   function clearQueue() { setQueue([]) }
 
   // Queue processor — when idle, scan the queue for the first runnable
@@ -808,7 +823,9 @@ export default function App() {
         const sup    = u.supplierId ? supplierFromId(u.supplierId) : null
         const needed = partsNeeded(u.quality)
         if ((s.parts || 0) < needed) {
-          dispatch({ type: 'ADD_LOG', payload: `❌ Need ${needed} part${needed > 1 ? 's' : ''} to repair — order from 🛒 eBay.` })
+          const msg = `Need ${needed} part${needed > 1 ? 's' : ''} to repair — order from 🛒 eBay.`
+          dispatch({ type: 'ADD_LOG', payload: `❌ ${msg}` })
+          setAlertToast({ msg, icon: '❌', variant: 'error', expiresAt: Date.now() + 3500 })
           return 'no-parts'
         }
         dispatch({ type: 'CONSUME_PARTS', payload: needed })
@@ -1694,9 +1711,17 @@ export default function App() {
                                 key={qty}
                                 className={`dbc-btn${canAfford ? '' : ' dim'}`}
                                 disabled={!canAfford}
-                                onClick={() => qty === 1
-                                  ? dispatch({ type: 'BUY',     payload: { type: d.id } })
-                                  : dispatch({ type: 'BUY_LOT', payload: { type: d.id, qty } })}
+                                onClick={() => {
+                                  if (qty === 1) dispatch({ type: 'BUY',     payload: { type: d.id } })
+                                  else           dispatch({ type: 'BUY_LOT', payload: { type: d.id, qty } })
+                                  const eta = sup.deliverySec ?? 10
+                                  setAlertToast({
+                                    msg: `Ordered ×${qty} ${d.icon} ${t('device.' + d.id + '.label')} — arriving in ${eta}s`,
+                                    icon: sup.icon || '🚚',
+                                    variant: 'success',
+                                    expiresAt: Date.now() + 2800,
+                                  })
+                                }}
                                 title={`$${est} ${t('shop.totalLabel')}${discount ? ` (${Math.round(discount*100)}% ${t('shop.off')})` : ''}`}
                               >
                                 <span className="dbc-qty">{qty === 1 ? '×1' : `×${qty}`}</span>
@@ -1733,7 +1758,16 @@ export default function App() {
                     key={src.id}
                     className={`parts-btn${canBuy ? '' : ' dim'}${unlocked ? '' : ' locked'}`}
                     disabled={!canBuy}
-                    onClick={() => unlocked && dispatch({ type: 'ORDER_PARTS', payload: src.id })}
+                    onClick={() => {
+                      if (!unlocked) return
+                      dispatch({ type: 'ORDER_PARTS', payload: src.id })
+                      setAlertToast({
+                        msg: `Ordered ×${src.qty} 🔩 parts from ${src.icon} ${t('parts.' + src.id + '.label')} — arriving in ${src.deliverySec}s`,
+                        icon: src.icon || '🚚',
+                        variant: 'success',
+                        expiresAt: Date.now() + 2800,
+                      })
+                    }}
                   >
                     <div className="parts-icon">{src.icon}</div>
                     <div className="parts-name">{t('parts.' + src.id + '.label')}</div>
@@ -2408,6 +2442,14 @@ export default function App() {
           </div>
         )
       })()}
+
+      {alertToast && alertToast.expiresAt > tickNow && (
+        <div className={`alert-toast at-${alertToast.variant || 'error'}`} onClick={() => setAlertToast(null)}>
+          <span className="at-icon">{alertToast.icon || '❌'}</span>
+          <span className="at-msg">{alertToast.msg}</span>
+          <span className="at-close">×</span>
+        </div>
+      )}
 
       {eventToast && eventToast.expiresAt > tickNow && (
         <div className="event-toast" onClick={() => setEventToast(null)}>
