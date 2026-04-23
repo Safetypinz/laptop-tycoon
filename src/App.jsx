@@ -860,9 +860,8 @@ export default function App() {
         const sup    = u.supplierId ? supplierFromId(u.supplierId) : null
         const needed = partsNeeded(u.quality)
         if ((s.parts || 0) < needed) {
-          const msg = `Need ${needed} part${needed > 1 ? 's' : ''} to repair — order from 🛒 eBay.`
-          dispatch({ type: 'ADD_LOG', payload: `❌ ${msg}` })
-          setAlertToast({ msg, icon: '❌', variant: 'error', expiresAt: Date.now() + 3500 })
+          // No toast here — the persistent "No parts!" banner + inline
+          // repair-button state already tell the story without a popup.
           return 'no-parts'
         }
         dispatch({ type: 'CONSUME_PARTS', payload: needed })
@@ -959,7 +958,17 @@ export default function App() {
   const ACTIONS = [
     { id: 'buy',    label: t('action.buy'),  desc: t('action.buyDesc'), fn: buy, off: false },
     { id: 'audit',  label: t('action.audit'),  autoOn: isAuto('auditor'), workerId: 'auditor', desc: isAuto('auditor') ? autoDesc('audit',  p.unchecked.length) : `${p.unchecked.length} ${t('action.autoWaiting')}`, fn: () => enqueue('audit'),  off: isAuto('auditor') || qAllowed('audit')  <= 0 },
-    { id: 'repair', label: t('action.repair'), autoOn: isAuto('tech') || isAuto('desktopTech'), workerId: 'tech', desc: (isAuto('tech') || isAuto('desktopTech')) ? autoDesc('repair', p.audited.length) : `${p.audited.length} ${t('action.autoWaiting')}`, fn: () => enqueue('repair'), off: isAuto('tech') || isAuto('desktopTech') || qAllowed('repair') <= 0 },
+    (() => {
+      const techAuto = isAuto('tech') || isAuto('desktopTech')
+      // Inline "Need parts" state on the Repair button itself — replaces the
+      // old toast popup. Button label doubles as the reason it's disabled.
+      const nextUnit    = p.audited[0]
+      const needed      = nextUnit ? partsNeeded(nextUnit.quality) : 0
+      const parts       = state.parts || 0
+      const partsShort  = !techAuto && p.audited.length > 0 && parts < needed
+      const repairLabel = partsShort ? `🛒 Need ${needed - parts} part${(needed - parts) === 1 ? '' : 's'}` : t('action.repair')
+      return { id: 'repair', label: repairLabel, autoOn: techAuto, workerId: 'tech', desc: techAuto ? autoDesc('repair', p.audited.length) : `${p.audited.length} ${t('action.autoWaiting')}`, fn: () => enqueue('repair'), off: techAuto || qAllowed('repair') <= 0 || partsShort }
+    })(),
     { id: 'image',  label: t('action.image'),  autoOn: isAuto('imager'),  workerId: 'imager',  desc: isAuto('imager')  ? autoDesc('image',  p.repaired.length)  : `${p.repaired.length} ${t('action.autoWaiting')}`,  fn: () => enqueue('image'),  off: isAuto('imager')  || qAllowed('image')  <= 0 },
     { id: 'clean',  label: t('action.clean'),  autoOn: isAuto('cleaner'), workerId: 'cleaner', desc: isAuto('cleaner') ? autoDesc('clean',  p.imaged.length)    : `${p.imaged.length} ${t('action.autoWaiting')}`,    fn: () => enqueue('clean'),  off: isAuto('cleaner') || qAllowed('clean')  <= 0 },
     { id: 'pack',   label: t('action.pack'),   autoOn: isAuto('packer'),  workerId: 'packer',  desc: isAuto('packer')  ? autoDesc('pack',   p.cleaned.length)   : `${p.cleaned.length} ${t('action.autoWaiting')}`,   fn: () => enqueue('pack'),   off: isAuto('packer')  || qAllowed('pack')   <= 0 },
