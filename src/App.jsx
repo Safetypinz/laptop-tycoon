@@ -774,10 +774,10 @@ export default function App() {
   }, []) // runs once; reads live state via stateRef
 
   // ── Manual action helper ──────────────────────────────────────────────────
-  function doAction(label, duration, onDone) {
+  function doAction(actionId, label, duration, onDone) {
     if (working) return
     const start = Date.now()
-    setWorking({ label, progress: 0 })
+    setWorking({ actionId, label, progress: 0 })
 
     tickRef.current = setInterval(() => {
       const pct = Math.min(99, ((Date.now() - start) / duration) * 100)
@@ -802,7 +802,10 @@ export default function App() {
   }
   function enqueue(id) {
     setQueue(q => {
-      const currentCount = q.filter(x => x === id).length
+      // Include any in-flight action of the same id so we can't overshoot
+      // the bucket by 1 while a unit is mid-process.
+      const inFlight = working?.actionId === id ? 1 : 0
+      const currentCount = q.filter(x => x === id).length + inFlight
       const sp = stateRef.current.pipeline
       const cap = {
         audit:  sp.unchecked.length,
@@ -834,7 +837,7 @@ export default function App() {
         const haMult = [1, 0.75, 0.60, 0.50][haLvl] || 1
         const dur = Math.max(500, DURATIONS.audit * (sup?.auditMult || 1) * haMult)
         const ev  = rollAuditEvents(u.quality, s)
-        doAction(t('work.auditing'), dur, () => dispatch({ type: 'COMPLETE_AUDIT', payload: ev }))
+        doAction('audit', t('work.auditing'), dur, () => dispatch({ type: 'COMPLETE_AUDIT', payload: ev }))
       }},
       repair: { has: sp.audited.length, upstream: ['unchecked'], run: () => {
         const u      = sp.audited[0]
@@ -850,20 +853,20 @@ export default function App() {
         const invLvl = s.specials?.inventory?.hired ? (s.specials.inventory.level || 1) : 0
         const repairMult = (u.repairMult || 1) * ([1, 0.90, 0.80, 0.70][invLvl] || 1)
         const dur = Math.max(500, DURATIONS.repair * repairMult + (u.repairBonusMs || 0))
-        doAction(t('work.repairing'), dur, () => dispatch({ type: 'COMPLETE_REPAIR', payload: rollRepairEvents(invLvl, sup?.scrapMult || 1) }))
+        doAction('repair', t('work.repairing'), dur, () => dispatch({ type: 'COMPLETE_REPAIR', payload: rollRepairEvents(invLvl, sup?.scrapMult || 1) }))
       }},
       image:  { has: sp.repaired.length, upstream: ['unchecked', 'audited'], run: () => {
         const dur = DURATIONS.image + (sp.repaired[0].imageBonusMs || 0)
-        doAction(t('work.imaging'), dur, () => dispatch({ type: 'COMPLETE_IMAGE' }))
+        doAction('image', t('work.imaging'), dur, () => dispatch({ type: 'COMPLETE_IMAGE' }))
       }},
       clean:  { has: sp.imaged.length, upstream: ['unchecked', 'audited', 'repaired'], run: () => {
         const u   = sp.imaged[0]
         const sup = u.supplierId ? supplierFromId(u.supplierId) : null
         const dur = Math.max(500, DURATIONS.clean * (sup?.cleanMult || 1))
-        doAction(t('work.cleaning'), dur, () => dispatch({ type: 'COMPLETE_CLEAN' }))
+        doAction('clean', t('work.cleaning'), dur, () => dispatch({ type: 'COMPLETE_CLEAN' }))
       }},
       pack:   { has: sp.cleaned.length, upstream: ['unchecked', 'audited', 'repaired', 'imaged'], run: () => {
-        doAction(t('work.packing'), DURATIONS.pack, () => dispatch({ type: 'COMPLETE_PACK' }))
+        doAction('pack', t('work.packing'), DURATIONS.pack, () => dispatch({ type: 'COMPLETE_PACK' }))
       }},
     }
     // Find the first item in the queue that can actually run.
@@ -935,7 +938,7 @@ export default function App() {
     clean:  p.unchecked.length + p.audited.length + p.repaired.length + p.imaged.length,
     pack:   p.unchecked.length + p.audited.length + p.repaired.length + p.imaged.length + p.cleaned.length,
   }
-  const qAllowed = id => caps[id] - qCount(id)
+  const qAllowed = id => caps[id] - qCount(id) - (working?.actionId === id ? 1 : 0)
 
   const ACTIONS = [
     { id: 'buy',    label: t('action.buy'),  desc: t('action.buyDesc'), fn: buy, off: false },
