@@ -3301,21 +3301,26 @@ button.expansion-bar {
   }
   .tab-btn { position: relative }
 
-  /* Pipeline: bigger scroll-snap tiles on mobile, and larger counts so
-     the sticky bar is readable while scrolling through the shop. */
+  /* Pipeline on mobile: all 6 stages fit edge-to-edge without horizontal
+     scroll. Flex equal columns, compact padding, icon+count prominent. */
   .pipeline {
-    overflow-x: auto;
-    scroll-snap-type: x proximity;
-    -webkit-overflow-scrolling: touch;
+    overflow: hidden;
+    display: flex;
   }
   .ps-box {
-    min-width: 96px;
-    scroll-snap-align: start;
-    padding: 12px 8px 10px;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 8px 2px 6px;
   }
-  .ps-count { font-size: 2.1rem; font-weight: 800 }
-  .ps-label { font-size: 0.82rem }
-  .ps-box.ps-clickable { min-width: 108px }
+  .ps-icon { font-size: 1.1rem; margin-bottom: 2px }
+  .ps-count { font-size: 1.6rem; font-weight: 800; line-height: 1 }
+  .ps-label { font-size: 0.62rem; letter-spacing: 0; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+  .ps-ship-hint { font-size: 0.58rem; padding: 1px 3px }
+  .ps-box:not(:last-child)::after { right: -4px; font-size: 0.75rem }
+  .ps-box.ps-clickable { min-width: 0 }
+  .ps-dot { font-size: 0.7rem }
+  .ps-incoming { font-size: 0.6rem }
+  .bottleneck-tag { font-size: 0.55rem; padding: 1px 3px }
 
   /* Sticky pipeline on mobile — pinned under the topbar so players can
      see queue state while scrolling the shop to buy. Solid background +
