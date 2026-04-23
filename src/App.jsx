@@ -929,6 +929,21 @@ export default function App() {
     { id: 'ship',   label: `${t('action.ship')}${p.packed.length > 1 ? ` ${t('action.shipAllN').split('{n}').join(p.packed.length)}` : ''}`, desc: `${p.packed.length} ${t('action.ready')}`, fn: ship, off: !p.packed.length, full: true },
   ]
 
+  // All pipeline stages staffed → hide manual action UI so the game feels calm.
+  // Repair is covered if either tech or desktopTech is hired.
+  const allStaffed = (w.auditor?.count || 0) > 0
+    && ((w.tech?.count || 0) > 0 || (w.desktopTech?.count || 0) > 0)
+    && (w.imager?.count  || 0) > 0
+    && (w.cleaner?.count || 0) > 0
+    && (w.packer?.count  || 0) > 0
+
+  // Safety net: if every stage is staffed, drop any leftover manual work/queue.
+  useEffect(() => {
+    if (!allStaffed) return
+    if (working) { clearInterval(tickRef.current); clearTimeout(timerRef.current); setWorking(null) }
+    if (queue.length > 0) setQueue([])
+  }, [allStaffed])
+
   const shopBadge = WORKER_DEFS.some(d => {
     if (!workerStageUnlocked(d, state)) return false
     const wk = w[d.id] || { count: 0 }
@@ -1280,12 +1295,10 @@ export default function App() {
               {scrapOpen && (
                 <div className="scrap-actions">
                   <button className="scrap-btn" onClick={() => dispatch({ type: 'SCRAP_PART_OUT' })}>
-                    <span className="sb-top">{t('scrap.partOut')}</span>
-                    <span className="sb-sub">+{partsYield} {t('scrap.partYield')}</span>
+                    🔩 {t('scrap.partOut')} <span className="sb-sub">+{partsYield}</span>
                   </button>
                   <button className="scrap-btn" onClick={() => dispatch({ type: 'SCRAP_SELL_JUNK' })}>
-                    <span className="sb-top">{t('scrap.sellJunk')}</span>
-                    <span className="sb-sub">+${junkCash}</span>
+                    💵 {t('scrap.sellJunk')} <span className="sb-sub">+${junkCash}</span>
                   </button>
                   <button
                     className={`scrap-btn${ebayOk ? '' : ' dim'}`}
@@ -1293,8 +1306,7 @@ export default function App() {
                     onClick={() => dispatch({ type: 'SCRAP_SELL_EBAY' })}
                     title={ebayOk ? t('scrap.ebayTitle') : t('scrap.ebayUnlockHint')}
                   >
-                    <span className="sb-top">{t('scrap.sellEbay')}</span>
-                    <span className="sb-sub">{ebayOk ? `+$${ebayCash}` : t('scrap.ebayLocked')}</span>
+                    📦 {t('scrap.sellEbay')} <span className="sb-sub">{ebayOk ? `+$${ebayCash}` : '🔒'}</span>
                   </button>
                 </div>
               )}
@@ -1334,32 +1346,18 @@ export default function App() {
           )
         })()}
 
-        {/* Event log — always visible */}
-        <section className="log-panel">
-          <div className="log-header">
-            <span className="log-title">{t('log.title')}</span>
-            <button className="log-expand" onClick={() => setLogOpen(true)} title={t('log.showFull')}>
-              {state.log.length > 0 && <span className="log-count">{state.log.length} {t('log.events')}</span>}
-              <span className="log-expand-icon">⤢</span>
-            </button>
-          </div>
-          <div className="log log-compact">
-            {state.log.length === 0 && <div className="log-empty">{t('log.empty')}</div>}
-            {state.log.slice(0, 4).map(e => {
-              const txt = logText(e)
-              if (!txt) return null
-              return (
-                <div key={e.id} className={`log-row kind-${logKind(txt)}`}>
-                  <span className="log-t">{e.t}</span>
-                  <span className="log-msg">{txt}{e.count > 1 && <span className="log-x"> ×{e.count}</span>}</span>
-                </div>
-              )
-            })}
-          </div>
-        </section>
+        {/* Event log — collapsed to a single-row drawer toggle. The full log
+            opens in a modal when tapped. Keeps the main screen calm; toasts
+            handle "in-the-moment" alerts. */}
+        <button className="log-drawer" onClick={() => setLogOpen(true)} title={t('log.showFull')}>
+          <span className="ld-icon">📋</span>
+          <span className="ld-label">{t('log.title')}</span>
+          <span className="ld-count">{state.log.length}</span>
+          <span className="ld-expand">⤢</span>
+        </button>
 
-        {/* Manual action progress / queue indicator */}
-        {(working || queue.length > 0) && (
+        {/* Manual action progress / queue indicator — hidden when floor is fully staffed */}
+        {!allStaffed && (working || queue.length > 0) && (
           <div className="prog-bar">
             {working ? (
               <>
@@ -1443,24 +1441,46 @@ export default function App() {
                 )
               })}
             </div>
-          <div className="actions-grid">
-            {ACTIONS.map(a => {
-              const n = a.id !== 'buy' && a.id !== 'ship' ? qCount(a.id) : 0
-              return (
-                <button
-                  key={a.id}
-                  className={`action-btn${a.off && !a.autoOn ? ' dim' : ''}${a.full ? ' full' : ''}${a.autoOn ? ' auto' : ''}`}
-                  onClick={a.fn}
-                  disabled={a.off}
-                >
-                  {n > 0 && <span className="action-qbadge">×{n}</span>}
-                  {a.autoOn && <span className="auto-dot">●</span>}
-                  <div className="action-label">{a.label}</div>
-                  <div className="action-desc">{a.desc}</div>
-                </button>
-              )
-            })}
-          </div>
+          {allStaffed ? (
+            <div className="actions-auto">
+              <div className="actions-auto-note">
+                <span className="aa-dot">●</span>
+                <span>Floor running — workers are handling every stage.</span>
+              </div>
+              {(() => {
+                const ship = ACTIONS.find(a => a.id === 'ship')
+                return (
+                  <button
+                    className={`action-btn full${ship.off ? ' dim' : ''}`}
+                    onClick={ship.fn}
+                    disabled={ship.off}
+                  >
+                    <div className="action-label">{ship.label}</div>
+                    <div className="action-desc">{ship.desc}</div>
+                  </button>
+                )
+              })()}
+            </div>
+          ) : (
+            <div className="actions-grid">
+              {ACTIONS.map(a => {
+                const n = a.id !== 'buy' && a.id !== 'ship' ? qCount(a.id) : 0
+                return (
+                  <button
+                    key={a.id}
+                    className={`action-btn${a.off && !a.autoOn ? ' dim' : ''}${a.full ? ' full' : ''}${a.autoOn ? ' auto' : ''}`}
+                    onClick={a.fn}
+                    disabled={a.off}
+                  >
+                    {n > 0 && <span className="action-qbadge">×{n}</span>}
+                    {a.autoOn && <span className="auto-dot">●</span>}
+                    <div className="action-label">{a.label}</div>
+                    <div className="action-desc">{a.desc}</div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
           </div>
         )}
 
@@ -1715,11 +1735,19 @@ export default function App() {
                                   if (qty === 1) dispatch({ type: 'BUY',     payload: { type: d.id } })
                                   else           dispatch({ type: 'BUY_LOT', payload: { type: d.id, qty } })
                                   const eta = sup.deliverySec ?? 10
-                                  setAlertToast({
-                                    msg: `Ordered ×${qty} ${d.icon} ${t('device.' + d.id + '.label')} — arriving in ${eta}s`,
-                                    icon: sup.icon || '🚚',
-                                    variant: 'success',
-                                    expiresAt: Date.now() + 2800,
+                                  const stackKey = `buy:${sup.id}:${d.id}`
+                                  const label = t('device.' + d.id + '.label')
+                                  setAlertToast(prev => {
+                                    const stillLive = prev && prev.stackKey === stackKey && prev.expiresAt > Date.now()
+                                    const newQty = (stillLive ? prev.stackQty : 0) + qty
+                                    return {
+                                      stackKey,
+                                      stackQty: newQty,
+                                      msg: `Ordered ×${newQty} ${d.icon} ${label} — arriving in ${eta}s`,
+                                      icon: sup.icon || '🚚',
+                                      variant: 'success',
+                                      expiresAt: Date.now() + 2800,
+                                    }
                                   })
                                 }}
                                 title={`$${est} ${t('shop.totalLabel')}${discount ? ` (${Math.round(discount*100)}% ${t('shop.off')})` : ''}`}
@@ -1761,11 +1789,19 @@ export default function App() {
                     onClick={() => {
                       if (!unlocked) return
                       dispatch({ type: 'ORDER_PARTS', payload: src.id })
-                      setAlertToast({
-                        msg: `Ordered ×${src.qty} 🔩 parts from ${src.icon} ${t('parts.' + src.id + '.label')} — arriving in ${src.deliverySec}s`,
-                        icon: src.icon || '🚚',
-                        variant: 'success',
-                        expiresAt: Date.now() + 2800,
+                      const stackKey = `parts:${src.id}`
+                      const label = t('parts.' + src.id + '.label')
+                      setAlertToast(prev => {
+                        const stillLive = prev && prev.stackKey === stackKey && prev.expiresAt > Date.now()
+                        const newQty = (stillLive ? prev.stackQty : 0) + src.qty
+                        return {
+                          stackKey,
+                          stackQty: newQty,
+                          msg: `Ordered ×${newQty} 🔩 parts from ${src.icon} ${label} — arriving in ${src.deliverySec}s`,
+                          icon: src.icon || '🚚',
+                          variant: 'success',
+                          expiresAt: Date.now() + 2800,
+                        }
                       })
                     }}
                   >
@@ -1895,7 +1931,8 @@ export default function App() {
               const upg      = sp.hired ? specialUpgCost(def, sp.level, state) : null
               const stageIdx = EXPANSION_STAGES.findIndex(s => s.id === def.unlockStage)
               const curIdx   = EXPANSION_STAGES.findIndex(s => s.id === state.expansionStage)
-              const locked   = curIdx < stageIdx
+              const soldLocked = (def.unlockSold || 0) > state.sold
+              const locked   = curIdx < stageIdx || soldLocked
               const canHire  = !sp.hired && !locked && state.money >= hireCost
               const canUpg   = sp.hired && upg !== null && state.money >= upg
 
@@ -1907,7 +1944,11 @@ export default function App() {
                       {t('special.' + def.id + '.label')}
                       {sp.hired && def.maxLevel > 1 && <LevelDots level={sp.level} max={def.maxLevel} />}
                     </div>
-                    <div className="wc-desc">{locked ? tf('shop.stageLocked', { stage: t('stage.' + EXPANSION_STAGES[stageIdx].id + '.label') }) : t('special.' + def.id + '.desc')}</div>
+                    <div className="wc-desc">{locked
+                      ? (curIdx < stageIdx
+                        ? tf('shop.stageLocked', { stage: t('stage.' + EXPANSION_STAGES[stageIdx].id + '.label') })
+                        : tf('shop.workerLocked', { n: def.unlockSold, left: (def.unlockSold || 0) - state.sold }))
+                      : t('special.' + def.id + '.desc')}</div>
                     {sp.hired && <div className="wc-effect">{t('special.' + def.id + '.eff.' + sp.level)}</div>}
                     {sp.hired && def.id === 'manager' && sp.level >= 3 && (
                       <div className="fm-auto-mode">
@@ -2531,6 +2572,58 @@ export default function App() {
           </div>
         )
       })()}
+
+      {!state.onboardedAt && !state.gameOver && (
+        <div className="levelup-overlay kind-ok">
+          <div className="levelup-card">
+            <div className="lu-icon">🔧</div>
+            <div className="lu-title">Welcome to Laptop Refurb Tycoon</div>
+            <div className="lu-name">Run the pipeline. Flip beat-up laptops into cash.</div>
+            <div className="lu-perks">
+              Every unit walks through six stages: <b>Buy → Audit → Repair → Image → Clean → Pack → Ship</b>.
+              Click the action buttons to move one unit at a time, or hire workers to automate each stage.
+            </div>
+            <div className="lu-sub" style={{ lineHeight: '1.4', opacity: 0.9 }}>
+              🛒 Buy devices from suppliers in the <b>Shop</b>.<br />
+              👤 Hire a <b>Repair Tech</b>, <b>Imager</b>, <b>Cleaner</b>, and <b>Packer</b> to automate the floor.<br />
+              🔩 Repairs need <b>parts</b> — keep some in stock.<br />
+              📝 Once you unlock the <b>Sales Manager</b>, take <b>contracts</b> for bigger payouts.<br />
+              🏪 Sell enough to upgrade your shop — 5 stages from Garage → Company.
+            </div>
+            <div className="lu-sub" style={{ marginTop: '10px', opacity: 0.7, fontSize: '0.8rem' }}>
+              This is a playtest build — the game caps at <b>Company</b> stage. Send feedback when you're done!
+            </div>
+            <button className="lu-dismiss" onClick={() => dispatch({ type: 'ACK_ONBOARDING' })}>
+              Start playing
+            </button>
+          </div>
+        </div>
+      )}
+
+      {state.trialCompletedAt && !state.trialAckedAt && !state.gameOver && (
+        <div className="levelup-overlay kind-contract">
+          <div className="levelup-card">
+            <div className="lu-fireworks">🎉🎊🎉</div>
+            <div className="lu-icon">🏆</div>
+            <div className="lu-title">Thanks for playing the trial!</div>
+            <div className="lu-name">You hit the Company stage — end of the test run.</div>
+            <div className="lu-perks">
+              You made it through the full pipeline, built a crew, and scaled from a garage to a Company.
+              The playtest build caps here — Regional / National / Corporate and multi-shop are coming later.
+            </div>
+            <div className="lu-sub" style={{ lineHeight: '1.5' }}>
+              <b>{state.sold?.toLocaleString() || 0}</b> units sold · <b>${state.totalEarned?.toLocaleString() || 0}</b> lifetime earnings · <b>{state.counters?.contractsDone || 0}</b> contracts delivered
+            </div>
+            <div className="lu-sub" style={{ marginTop: '10px', opacity: 0.8 }}>
+              Feel free to keep grinding — everything still works, there's just no new shop to unlock.
+              Send Andrew your feedback: what felt good, what sucked, what you'd cut.
+            </div>
+            <button className="lu-dismiss" onClick={() => dispatch({ type: 'ACK_TRIAL_END' })}>
+              Keep playing
+            </button>
+          </div>
+        </div>
+      )}
 
       {state.gameOver && (
         <div className="gameover-overlay">

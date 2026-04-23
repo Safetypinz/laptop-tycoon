@@ -800,6 +800,13 @@ body {
 .log-row.kind-parts     { border-left-color: #f0a500; }
 .log-row.kind-scrap     { border-left-color: #c96a3f; background: rgba(201, 106, 63, 0.04); }
 .log-row.kind-event     { border-left-color: #ffb347; background: rgba(255, 179, 71, 0.05); }
+.log-row.kind-summary   {
+  border-left-color: var(--muted);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
 
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(-3px) }
@@ -1311,20 +1318,20 @@ body {
   background: var(--surface);
   border: 1px solid var(--border);
   border-left: 3px solid #c96a3f;
-  border-radius: 10px;
-  margin: 6px 0;
+  border-radius: 8px;
+  margin: 4px 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 .scrap-bin.closed { padding: 0; }
-.scrap-bin.open   { padding: 6px 10px 10px; }
+.scrap-bin.open   { padding: 0 6px 6px; }
 
 .scrap-head {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 6px;
+  padding: 4px 8px;
   background: transparent;
   border: none;
   color: var(--text);
@@ -1332,43 +1339,53 @@ body {
   cursor: pointer;
   text-align: left;
   width: 100%;
+  font-size: 0.82rem;
 }
 .scrap-bin.closed .scrap-head:hover { background: rgba(201, 106, 63, 0.08); }
-.scrap-chevron { margin-left: auto; color: var(--muted); font-size: 0.8rem; }
+.scrap-chevron { margin-left: auto; color: var(--muted); font-size: 0.72rem; }
 
-.scrap-icon { font-size: 1.3rem; }
-.scrap-label { font-weight: 700; color: #d89167; letter-spacing: 0.02em; }
+.scrap-icon { font-size: 0.95rem; }
+.scrap-label { font-weight: 700; color: #d89167; letter-spacing: 0.02em; font-size: 0.82rem; }
 .scrap-count {
   background: rgba(201, 106, 63, 0.18);
   color: #f0ad7e;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-  padding: 2px 8px;
+  padding: 1px 7px;
   border-radius: 999px;
-  font-size: 0.82rem;
+  font-size: 0.74rem;
 }
 
 .scrap-actions {
   display: flex;
-  gap: 8px;
-  flex: 1;
-  flex-wrap: wrap;
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
 }
 
 .scrap-btn {
-  flex: 1;
-  min-width: 120px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  flex: 1 1 0;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   background: var(--surface2);
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.12s;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.scrap-btn .sb-sub {
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 0.74rem;
 }
 
 .scrap-btn:hover:not(:disabled) {
@@ -1549,6 +1566,29 @@ button.expansion-bar {
 /* ── Supplier strip (Actions tab) ───────────────────────────── */
 
 .actions-wrap { display: flex; flex-direction: column; gap: 10px }
+
+.actions-auto {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.actions-auto-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(74, 222, 128, 0.06);
+  border: 1px solid rgba(74, 222, 128, 0.25);
+  border-left: 3px solid #4ade80;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+.actions-auto-note .aa-dot {
+  color: #4ade80;
+  font-size: 0.7rem;
+  animation: none;
+}
 
 .strip-label {
   font-size: 0.68rem;
@@ -1964,10 +2004,27 @@ button.expansion-bar {
   .go-title { font-size: 1.8rem; }
 }
 
-/* ── Event chip (collapsed state — docked, inline) ───────────── */
+/* ── Event chip (collapsed state — floating overlay, no layout shift) ───── */
 .event-dock {
-  padding: 6px 14px 0;
-  margin-top: 2px;
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 72px;
+  z-index: 820;
+  width: min(560px, calc(100vw - 20px));
+  padding: 0;
+  margin: 0;
+  pointer-events: none;
+}
+.event-dock .event-chip { pointer-events: auto; }
+@media (max-width: 640px) {
+  .event-dock {
+    left: 10px;
+    right: 10px;
+    transform: none;
+    width: auto;
+    bottom: 64px;
+  }
 }
 .event-chip {
   display: flex;
@@ -2849,7 +2906,45 @@ button.expansion-bar {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Log panel (always-visible ticker) ──────────────────────── */
+/* ── Log drawer toggle (single-row; opens full log modal) ───── */
+
+.log-drawer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 4px 0 8px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+}
+.log-drawer:hover {
+  background: var(--surface2);
+  color: var(--text);
+  border-color: var(--accent);
+}
+.log-drawer .ld-icon  { font-size: 0.95rem; }
+.log-drawer .ld-label { font-weight: 600; letter-spacing: 0.02em; }
+.log-drawer .ld-count {
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+.log-drawer .ld-expand { color: var(--muted); font-size: 0.85rem; opacity: 0.7; }
+
+/* ── Legacy log-panel (kept for full log modal) ─────────────── */
 
 .log-panel {
   margin: 6px 0 10px;

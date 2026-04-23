@@ -367,21 +367,26 @@ export function partSourceUnlocked(src, state) {
 
 // maxByStage: { garage, shop, warehouse, company, regional, national, corporate }
 // Each entry = how many of this role you can have at that expansion stage.
+// Order below matches pipeline flow (audit → repair → image → clean → pack),
+// with the repair specialist next to the base Repair Tech and Utility as a flex
+// role at the end. unlockSold thresholds follow the same cadence so a player
+// always unlocks the next pipeline stage's worker before any specialist or
+// management role appears.
 export const WORKER_DEFS = [
   { id: 'auditor',     label: 'Auditor',      icon: '🔍', input: 'unchecked', actionType: 'COMPLETE_AUDIT',  hireCost: 75,  upgBase: 60,  baseDuration: DURATIONS.audit,  desc: 'Inspects incoming units',     unlockSold: 0,
     maxByStage: { garage: 1, shop: 2, storefront: 2, warehouse: 3, company: 4, regional: 4, national: 4, corporate: 5 } },
-  { id: 'packer',      label: 'Packer',       icon: '📦', input: 'cleaned',   actionType: 'COMPLETE_PACK',   hireCost: 60,  upgBase: 40,  baseDuration: DURATIONS.pack,   desc: 'Packs units for shipping',    unlockSold: 3,
-    maxByStage: { garage: 1, shop: 1, storefront: 2, warehouse: 2, company: 3, regional: 3, national: 3, corporate: 4 } },
   { id: 'tech',        label: 'Repair Tech',  icon: '🔧', input: 'audited',   actionType: 'COMPLETE_REPAIR', hireCost: 150, upgBase: 120, baseDuration: DURATIONS.repair, desc: 'Repairs damaged units',       unlockSold: 15, perHire: true,
     maxByStage: { garage: 1, shop: 1, storefront: 2, warehouse: 2, company: 2, regional: 3, national: 3, corporate: 4 } },
-  { id: 'desktopTech', label: 'Desktop Tech', icon: '🖥️', input: 'audited',   actionType: 'COMPLETE_REPAIR', hireCost: 180, upgBase: 140, baseDuration: DURATIONS.repair, desc: 'Volume specialist — 50% faster on desktops, AIOs & monitors',  unlockSold: 35, unlockStage: 'shop',
-    maxByStage: { shop: 1, storefront: 1, warehouse: 2, company: 2, regional: 2, national: 2, corporate: 3 } },
-  { id: 'utility',     label: 'Utility Tech', icon: '🧰', input: 'any',       actionType: 'UTILITY_ADVANCE',  hireCost: 120, upgBase: 80,  baseDuration: DURATIONS.audit,  desc: 'Flex hand. 1.5× slower, but covers any non-repair stage when primaries are busy.', unlockSold: 55, unlockStage: 'shop',
-    maxByStage: { shop: 1, storefront: 1, warehouse: 2, company: 2, regional: 3, national: 3, corporate: 4 } },
-  { id: 'cleaner',     label: 'Cleaner',      icon: '🧹', input: 'imaged',    actionType: 'COMPLETE_CLEAN',  hireCost: 75,  upgBase: 50,  baseDuration: DURATIONS.clean,  desc: 'Cleans & preps units',        unlockSold: 45,
-    maxByStage: { garage: 1, shop: 2, storefront: 2, warehouse: 3, company: 4, regional: 5, national: 5, corporate: 5 } },
-  { id: 'imager',      label: 'Imager',       icon: '💿', input: 'repaired',  actionType: 'COMPLETE_IMAGE',  hireCost: 100, upgBase: 80,  baseDuration: DURATIONS.image,  desc: 'Installs OS & software',      unlockSold: 75,
+  { id: 'imager',      label: 'Imager',       icon: '💿', input: 'repaired',  actionType: 'COMPLETE_IMAGE',  hireCost: 100, upgBase: 80,  baseDuration: DURATIONS.image,  desc: 'Installs OS & software',      unlockSold: 25,
     maxByStage: { garage: 1, shop: 1, storefront: 2, warehouse: 2, company: 3, regional: 3, national: 3, corporate: 4 } },
+  { id: 'cleaner',     label: 'Cleaner',      icon: '🧹', input: 'imaged',    actionType: 'COMPLETE_CLEAN',  hireCost: 75,  upgBase: 50,  baseDuration: DURATIONS.clean,  desc: 'Cleans & preps units',        unlockSold: 40,
+    maxByStage: { garage: 1, shop: 2, storefront: 2, warehouse: 3, company: 4, regional: 5, national: 5, corporate: 5 } },
+  { id: 'packer',      label: 'Packer',       icon: '📦', input: 'cleaned',   actionType: 'COMPLETE_PACK',   hireCost: 60,  upgBase: 40,  baseDuration: DURATIONS.pack,   desc: 'Packs units for shipping',    unlockSold: 3,
+    maxByStage: { garage: 1, shop: 1, storefront: 2, warehouse: 2, company: 3, regional: 3, national: 3, corporate: 4 } },
+  { id: 'desktopTech', label: 'Desktop Tech', icon: '🖥️', input: 'audited',   actionType: 'COMPLETE_REPAIR', hireCost: 180, upgBase: 140, baseDuration: DURATIONS.repair, desc: 'Volume specialist — 50% faster on desktops, AIOs & monitors',  unlockSold: 50, unlockStage: 'shop',
+    maxByStage: { shop: 1, storefront: 1, warehouse: 2, company: 2, regional: 2, national: 2, corporate: 3 } },
+  { id: 'utility',     label: 'Utility Tech', icon: '🧰', input: 'any',       actionType: 'UTILITY_ADVANCE',  hireCost: 120, upgBase: 80,  baseDuration: DURATIONS.audit,  desc: 'Flex hand. 1.5× slower, but covers any non-repair stage when primaries are busy.', unlockSold: 65, unlockStage: 'shop',
+    maxByStage: { shop: 1, storefront: 1, warehouse: 2, company: 2, regional: 3, national: 3, corporate: 4 } },
 ]
 
 // Desktop family: these route to desktopTech when Desktop Tech is hired.
@@ -506,6 +511,7 @@ export const SPECIAL_HIRES = [
     upgBase: 600,
     maxLevel: 3,
     unlockStage: 'shop',
+    unlockSold: 50,
     effectLabel: lvl => [
       'Auto-priority · +10% speed',
       '+20% speed · auto-order parts',
@@ -551,6 +557,7 @@ export const SPECIAL_HIRES = [
     upgBase: 400,
     maxLevel: 3,
     unlockStage: 'shop',
+    unlockSold: 50,
     effectLabel: lvl => [
       '+10% lot discount',
       '+20% lot discount · -25% delivery time',
@@ -774,9 +781,11 @@ export const EXPANSION_STAGES = [
   { id: 'storefront', label: 'Storefront',  icon: '🏬', soldNeeded: 60,    cost: 900,      grant: 600,     lots: [1, 10, 15]   },
   { id: 'warehouse',  label: 'Warehouse',   icon: '🏭', soldNeeded: 120,   cost: 3000,     grant: 2000,    lots: [1, 10, 20]   },
   { id: 'company',    label: 'Company',     icon: '🏢', soldNeeded: 500,   cost: 7000,     grant: 3500,    lots: [1, 20, 50]   },
-  { id: 'regional',   label: 'Regional HQ', icon: '🏙️', soldNeeded: 2000,  cost: 100000,   grant: 30000,   lots: [1, 50, 100]  },
-  { id: 'national',   label: 'National Ops', icon: '🌆', soldNeeded: 10000, cost: 500000,   grant: 150000,  lots: [1, 100, 250] },
-  { id: 'corporate',  label: 'Corporate',   icon: '🌐', soldNeeded: 50000, cost: 2500000,  grant: 700000,  lots: [1, 250, 500] },
+  // Trial cap 2026-04-22 — Regional/National/Corporate and multi-shop are
+  // disabled for playtest. Restore by un-commenting; nothing else changes.
+  // { id: 'regional',   label: 'Regional HQ', icon: '🏙️', soldNeeded: 2000,  cost: 100000,   grant: 30000,   lots: [1, 50, 100]  },
+  // { id: 'national',   label: 'National Ops', icon: '🌆', soldNeeded: 10000, cost: 500000,   grant: 150000,  lots: [1, 100, 250] },
+  // { id: 'corporate',  label: 'Corporate',   icon: '🌐', soldNeeded: 50000, cost: 2500000,  grant: 700000,  lots: [1, 250, 500] },
 ]
 
 // Discount per lot size
@@ -1071,10 +1080,9 @@ export function totalWageAcrossShops(state) {
   }, 0)
 }
 
-export function secondShopUnlocked(state) {
-  const curIdx = EXPANSION_STAGES.findIndex(s => s.id === state.expansionStage)
-  const reqIdx = EXPANSION_STAGES.findIndex(s => s.id === SECOND_SHOP_STAGE)
-  return curIdx >= reqIdx
+export function secondShopUnlocked(_state) {
+  // Disabled for 2026-04-22 trial cap. Re-enable by restoring the stage check.
+  return false
 }
 
 // ── Offline catch-up ─────────────────────────────────────────────────────────
@@ -2142,6 +2150,9 @@ export function makeInitialState() {
     lots: [],
     vendorStats: {},
     settings: { autoResolve: 'safe' },   // Floor Manager L3: 'safe' | 'greedy'
+    onboardedAt: null,
+    trialCompletedAt: null,
+    trialAckedAt: null,
   }
 }
 
@@ -2717,6 +2728,8 @@ export function reducer(state, action) {
         expansionStage: next.id,
         stageUpgradedAtSold: state.sold || 0,
         lastPayrollAt: Date.now() + STAGE_PAYROLL_GRACE_MS,
+        // Trial cap 2026-04-22 — reaching Company triggers the "thanks for playing" card
+        trialCompletedAt: (next.id === 'company' && !state.trialCompletedAt) ? Date.now() : state.trialCompletedAt,
       }, `🎉 UPGRADED to ${next.label} for $${cost.toLocaleString()}!${grantNote} Lot buying: ${next.lots.filter(n => n > 1).join(', ')} units. Payroll paused 2 min.`)
       return checkMilestones(s)
     }
@@ -3103,10 +3116,11 @@ export function reducer(state, action) {
       const list = activeContractsList(state)
       if (list.length === 0) return state
       const id  = action.payload ?? list[0].id
-      const ac  = list.find(c => c.id === id)
-      if (!ac) return state
+      const idx = list.findIndex(c => c.id === id)
+      if (idx < 0) return state
+      const ac  = list[idx]
       const tpl = CONTRACT_TEMPLATES.find(c => c.id === ac.id)
-      const nextList = list.filter(c => c !== ac)
+      const nextList = [...list.slice(0, idx), ...list.slice(idx + 1)]
       if (!tpl) return { ...state, activeContract: null, activeContracts: nextList }
       const reward  = ac.reward  ?? tpl.reward
       const deposit = ac.deposit ?? tpl.deposit
@@ -3139,13 +3153,14 @@ export function reducer(state, action) {
       const list = activeContractsList(state)
       if (list.length === 0) return state
       const id  = action.payload ?? list[0].id
-      const ac  = list.find(c => c.id === id)
-      if (!ac) return state
+      const idx = list.findIndex(c => c.id === id)
+      if (idx < 0) return state
+      const ac  = list[idx]
       const tpl = CONTRACT_TEMPLATES.find(c => c.id === ac.id)
       const deposit = ac.deposit ?? tpl?.deposit ?? 0
       const refund = tpl && !contractFulfillable(tpl, state)
       const depositBack = refund ? deposit : 0
-      const nextList = list.filter(c => c !== ac)
+      const nextList = [...list.slice(0, idx), ...list.slice(idx + 1)]
       return mkLog({
         ...state,
         money: state.money + depositBack,
@@ -3159,6 +3174,12 @@ export function reducer(state, action) {
 
     case 'CLAIM_MILESTONE':
       return claimMilestone(state, action.payload)
+
+    case 'ACK_ONBOARDING':
+      return { ...state, onboardedAt: Date.now() }
+
+    case 'ACK_TRIAL_END':
+      return { ...state, trialAckedAt: Date.now() }
 
     case 'SET_LANG':
       return { ...state, lang: action.payload === 'es' ? 'es' : 'en' }
