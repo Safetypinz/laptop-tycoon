@@ -3301,25 +3301,36 @@ button.expansion-bar {
   }
   .tab-btn { position: relative }
 
-  /* Pipeline: bigger scroll-snap tiles on mobile */
+  /* Pipeline: bigger scroll-snap tiles on mobile, and larger counts so
+     the sticky bar is readable while scrolling through the shop. */
   .pipeline {
     overflow-x: auto;
     scroll-snap-type: x proximity;
     -webkit-overflow-scrolling: touch;
   }
   .ps-box {
-    min-width: 88px;
+    min-width: 96px;
     scroll-snap-align: start;
-    padding: 14px 8px 12px;
+    padding: 12px 8px 10px;
   }
-  .ps-count { font-size: 1.9rem }
-  .ps-box.ps-clickable { min-width: 100px }
+  .ps-count { font-size: 2.1rem; font-weight: 800 }
+  .ps-label { font-size: 0.82rem }
+  .ps-box.ps-clickable { min-width: 108px }
 
-  /* Pipeline section can't be sticky on mobile (fights scroll) */
+  /* Sticky pipeline on mobile — pinned under the topbar so players can
+     see queue state while scrolling the shop to buy. Solid background +
+     shadow so scrolling content doesn't bleed through. */
   .pipeline-section {
-    position: static;
-    padding-top: 0;
-    margin-top: 0;
+    position: sticky;
+    top: 88px;
+    z-index: 15;
+    background: var(--bg);
+    padding-top: 6px;
+    padding-bottom: 6px;
+    margin: 0 -12px;
+    padding-left: 12px;
+    padding-right: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
   }
 
   /* Content tighter gaps */
