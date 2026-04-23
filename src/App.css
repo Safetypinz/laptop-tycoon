@@ -277,10 +277,11 @@ body {
 /* ── Pipeline ────────────────────────────────────────────────── */
 
 /* Sticky pipeline section — stays glued under the topbar so the Shop buy
-   button is visible at the same time as current queue state. */
+   button is visible at the same time as current queue state. Offset
+   comes from a live-measured --topbar-h CSS var (set in App.jsx). */
 .pipeline-section {
   position: sticky;
-  top: 68px;
+  top: var(--topbar-h, 68px);
   z-index: 15;
   background: var(--bg);
   padding-top: 8px;
@@ -3322,12 +3323,11 @@ button.expansion-bar {
   .ps-incoming { font-size: 0.6rem }
   .bottleneck-tag { font-size: 0.55rem; padding: 1px 3px }
 
-  /* Sticky pipeline on mobile — pinned under the topbar so players can
-     see queue state while scrolling the shop to buy. Solid background +
-     shadow so scrolling content doesn't bleed through. */
+  /* Sticky pipeline on mobile — top offset uses live-measured --topbar-h
+     so pipeline counts aren't hidden behind the taller two-row topbar. */
   .pipeline-section {
     position: sticky;
-    top: 88px;
+    top: var(--topbar-h, 88px);
     z-index: 15;
     background: var(--bg);
     padding-top: 6px;

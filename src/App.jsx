@@ -164,6 +164,7 @@ export default function App() {
 
   const timerRef      = useRef(null)
   const tickRef       = useRef(null)
+  const topbarRef     = useRef(null)
   const stateRef      = useRef(state)
   const workerBusy    = useRef({})
   const workerClaimed = useRef(new Set())  // unit IDs currently in flight (across all roles)
@@ -221,6 +222,23 @@ export default function App() {
 
   // Keep stateRef fresh every render (no stale-closure issues in ticker)
   useEffect(() => { stateRef.current = state })
+
+  // Publish measured topbar height to --topbar-h so the sticky pipeline sits
+  // exactly below it on every screen size (mobile topbar height varies with
+  // chip wrapping, so a hardcoded offset hides the pipeline counts).
+  useEffect(() => {
+    const el = topbarRef.current
+    if (!el) return
+    const update = () => {
+      const h = el.getBoundingClientRect().height
+      document.documentElement.style.setProperty('--topbar-h', `${Math.round(h)}px`)
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    window.addEventListener('resize', update)
+    return () => { ro.disconnect(); window.removeEventListener('resize', update) }
+  }, [])
 
   // Unlock detection — any new worker/channel/stage unlock queues a celebration card
   const seenUnlocksRef = useRef(null)
@@ -958,7 +976,7 @@ export default function App() {
   return (
     <div className={`app stage-${state.expansionStage || 'garage'}`}>
 
-      <header className="topbar">
+      <header className="topbar" ref={topbarRef}>
         <div className="tb-row tb-row-1">
           <div className="brand">{t('brand')}</div>
           <div className="tb-stage">
