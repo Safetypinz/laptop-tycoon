@@ -1844,7 +1844,7 @@ export default function App() {
                   >
                     <div className="parts-icon">{src.icon}</div>
                     <div className="parts-name">{t('parts.' + src.id + '.label')}</div>
-                    <div className="parts-stats">+{src.qty} · ${src.cost} · {src.deliverySec}s</div>
+                    <div className="parts-stats">${src.cost} · {src.qty} parts (${(src.cost / src.qty).toFixed(src.cost / src.qty < 1 ? 2 : 1)} ea) · {src.deliverySec}s</div>
                     <div className="parts-desc">
                       {unlocked ? t('parts.' + src.id + '.desc') : tf('shop.partsLockedAt', { stage: t('stage.' + src.unlockStage + '.label') })}
                     </div>
