@@ -165,6 +165,7 @@ export default function App() {
   const timerRef      = useRef(null)
   const tickRef       = useRef(null)
   const topbarRef     = useRef(null)
+  const pipelineRef   = useRef(null)
   const stateRef      = useRef(state)
   const workerBusy    = useRef({})
   const workerClaimed = useRef(new Set())  // unit IDs currently in flight (across all roles)
@@ -232,6 +233,21 @@ export default function App() {
     const update = () => {
       const h = el.getBoundingClientRect().height
       document.documentElement.style.setProperty('--topbar-h', `${Math.round(h)}px`)
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    window.addEventListener('resize', update)
+    return () => { ro.disconnect(); window.removeEventListener('resize', update) }
+  }, [])
+
+  // Publish pipeline section height so shop subtabs can stick just below it on mobile.
+  useEffect(() => {
+    const el = pipelineRef.current
+    if (!el) return
+    const update = () => {
+      const h = el.getBoundingClientRect().height
+      document.documentElement.style.setProperty('--pipeline-h', `${Math.round(h)}px`)
     }
     update()
     const ro = new ResizeObserver(update)
@@ -1210,7 +1226,7 @@ export default function App() {
       <div className="content">
 
         {/* Pipeline */}
-        <section className="section pipeline-section">
+        <section className="section pipeline-section" ref={pipelineRef}>
           <div className="pipeline">
             {STAGES.map(s => {
               const count      = p[s.key].length

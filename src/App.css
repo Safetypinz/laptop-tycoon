@@ -3343,6 +3343,24 @@ button.expansion-bar {
 
   /* Scrollable panels shouldn't be sticky on mobile */
   .section-label { margin-bottom: 6px }
+
+  /* Shop subtabs: stick just below the sticky pipeline so buy/hire/facilities/
+     research are always reachable. Without this they scroll out of view and
+     players think the Shop tab is buy-only. */
+  .shop-subtabs {
+    position: sticky;
+    top: calc(var(--topbar-h, 88px) + var(--pipeline-h, 80px) + 6px);
+    z-index: 14;
+    gap: 4px;
+    padding: 5px;
+    margin-bottom: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+  }
+  .shop-subtab {
+    padding: 10px 6px;
+    font-size: 0.8rem;
+    min-height: 40px;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
